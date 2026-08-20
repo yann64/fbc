@@ -948,14 +948,20 @@ private function hLinkFiles( ) as integer
 	case FB_COMPTARGET_HAIKU
 		'' Confirmed empirically (gcc -v on a real Haiku box): ALL Haiku
 		'' binaries, including plain executables, are linked as ET_DYN
-		'' with -shared -no-undefined; there is no separate ET_EXEC form
-		'' and no explicit -dynamic-linker path is passed by gcc either
-		'' (Haiku's ld already defaults to its own runtime_loader).
+		'' with -shared -no-undefined; there is no separate ET_EXEC form.
+		'' No explicit -dynamic-linker path is passed either -- confirmed
+		'' via `readelf -l` on a real fbc-built binary that Haiku ELF
+		'' files have no PT_INTERP segment at all (unlike Linux/BSD).
 		ldcline += " -shared -no-undefined"
 
 		if( fbGetOption( FB_COMPOPT_OUTTYPE ) = FB_OUTTYPE_DYNAMICLIB ) then
 			dllname = hStripPath( hStripExt( fbc.outname ) )
 			ldcline += " -h" + hStripPath( fbc.outname )
+
+			'' Real shared libraries on Haiku have no entry point (no
+			'' start_dyn.o/`main`, see the crt-begin-objects case below);
+			'' plain `gcc -shared` passes -e 0 for the same reason.
+			ldcline += " -e 0"
 
 			'' Turn libfoo into foo, so it can be checked against -l foo below
 			if( left( dllname, 3 ) = "lib" ) then
@@ -1200,9 +1206,16 @@ private function hLinkFiles( ) as integer
 		'' and uses start_dyn.o + init_term_dyn.o instead, always alongside
 		'' the PIC crtbeginS.o (never the plain crtbegin.o). No profiling
 		'' (gcrt*) variant is known to exist for Haiku.
+		''
+		'' start_dyn.o provides _start, which references `main` -- real
+		'' shared libraries don't have one, so `gcc -shared` on Haiku omits
+		'' it (confirmed via `gcc -shared -v`) and relies on -e 0 instead
+		'' (added alongside -shared above) to avoid needing an entry point.
 		ldcline += hFindLib( "crti.o" )
 		ldcline += hFindLib( "crtbeginS.o" )
-		ldcline += hFindLib( "start_dyn.o" )
+		if( fbGetOption( FB_COMPOPT_OUTTYPE ) <> FB_OUTTYPE_DYNAMICLIB ) then
+			ldcline += hFindLib( "start_dyn.o" )
+		end if
 		ldcline += hFindLib( "init_term_dyn.o" )
 
 	case FB_COMPTARGET_LINUX, FB_COMPTARGET_DARWIN, _

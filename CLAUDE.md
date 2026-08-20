@@ -211,11 +211,30 @@ signal — it passes 100% across all 4 dialects on Haiku.
   than a real Haiku-verified one. Fine for opaque `FILE*` passthrough (the
   overwhelmingly common case); would matter only for code that directly
   dereferences `FILE` internals.
-- Haiku's dynamic-linker-path and `-m elf_x86_64_haiku` choices, the exact
-  ABI flags in `fb.bas`'s `targetinfo()` row for Haiku (`FB_TARGETOPT_*`),
-  and building a `.so` (`FB_OUTTYPE_DYNAMICLIB`) on Haiku specifically are
-  all verified only for the "compile & link a normal executable" path — flag
-  anything touching those as needing fresh verification on the box.
+- The exact ABI flags in `fb.bas`'s `targetinfo()` row for Haiku
+  (`FB_TARGETOPT_*` — struct-passing/return conventions) are still only
+  inferred from the closest BSD-family target, not independently verified
+  against Haiku's actual System V x86_64 ABI implementation.
+
+### Confirmed since the initial port (no longer open questions)
+
+- **No `-dynamic-linker` override needed, confirmed (not just assumed):**
+  `readelf -l` on a real fbc-built Haiku binary shows **no PT_INTERP segment
+  at all** — Haiku's ELF loading has no equivalent of Linux's embedded
+  interpreter path.
+- **Building a `.so` (`FB_OUTTYPE_DYNAMICLIB`) works**, but needed its own
+  fix: `start_dyn.o` (added for the executable case) provides `_start`,
+  which references `main` — a real shared library has neither, so it's
+  omitted for `DYNAMICLIB` output and `-e 0` is passed instead (confirmed by
+  comparing against `gcc -shared -v` on the box). Verified end-to-end:
+  compiled a `.so` exporting a `Cdecl` function, `DyLibLoad`/`DyLibSymbol`ed
+  it from a separate program, called through the pointer, got the right
+  answer.
+- `tests/warnings/test.sh` and `tests/syntax/test.sh` (cross-target
+  diagnostic-message tests, run *from* Haiku-hosted fbc, targeting
+  dos/linux-x86/linux-x86_64/win32/win64) produce **zero diff** against the
+  committed baseline — the Haiku-hosted compiler's cross-compilation
+  diagnostics are byte-identical to upstream's.
 
 ### Workflow notes
 
