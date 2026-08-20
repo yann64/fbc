@@ -180,6 +180,9 @@ FBFLAGS := -maxerr 1
 AS = $(BUILD_PREFIX)as
 AR = $(BUILD_PREFIX)ar
 CC = $(BUILD_PREFIX)gcc
+# Only needed for the Haiku gfxlib2 driver, which has to be C++ since
+# Haiku's windowing API (BApplication/BWindow/BView) has no C bindings.
+CXX = $(BUILD_PREFIX)g++
 prefix := /usr/local
 
 # Determine the makefile's directory, this may be a relative path when
@@ -593,12 +596,13 @@ ifeq ($(TARGET_OS),darwin)
 endif
 
 ifeq ($(TARGET_OS),haiku)
-  # No X11 server and no gpm on Haiku, so those stay disabled.
+  # No X11 server and no gpm on Haiku, so those stay disabled. The Haiku
+  # gfxlib2 driver (src/gfxlib2/haiku/) doesn't support OpenGL either.
   # libffi IS present on Haiku by default (libffi.so + ffi.h under
   # /boot/system/develop/{lib,headers}), so ThreadCall support is enabled.
   # ncurses (termcap.h/curses.h/libncurses.so) is a HaikuPorts package, not
   # part of the base OS -- install ncurses6_devel to build this.
-  ALLCFLAGS += -DDISABLE_X11
+  ALLCFLAGS += -DDISABLE_X11 -DDISABLE_OPENGL
 endif
 
 ifneq ($(filter cygwin win32,$(TARGET_OS)),)
@@ -670,6 +674,12 @@ ALLFBRTCFLAGS += $(FBRTCFLAGS) $(FBFLAGS)
 ALLFBRTLFLAGS += $(FBRTLFLAGS) $(FBFLAGS)
 ALLCFLAGS += $(CFLAGS)
 
+# Only used for the Haiku gfxlib2 driver (see LIBFBGFX_CXX above). C++
+# exceptions/unwind tables are kept enabled here (unlike ALLCFLAGS) since
+# libstdc++ and the BeAPI headers it pulls in generally expect them.
+ALLCXXFLAGS := $(filter-out -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables,$(ALLCFLAGS))
+ALLCXXFLAGS += -std=c++11
+
 # compiler headers and modules
 FBC_BI  :=        $(wildcard $(srcdir)/compiler/*.bi)
 FBC_BAS := $(sort $(wildcard $(srcdir)/compiler/*.bas))
@@ -730,10 +740,15 @@ LIBFBRTMTPIC_C := $(patsubst %,$(libfbmtpicobjdir)/%,$(filter-out $(patsubst $(l
 LIBFBGFX_H := $(sort $(foreach i,$(GFXLIB2_DIRS),$(wildcard $(i)/*.h)) $(LIBFB_H))
 LIBFBGFX_C := $(sort $(foreach i,$(GFXLIB2_DIRS),$(patsubst $(i)/%.c,$(libfbgfxobjdir)/%.o,$(wildcard $(i)/*.c))))
 LIBFBGFX_S := $(sort $(foreach i,$(GFXLIB2_DIRS),$(patsubst $(i)/%.s,$(libfbgfxobjdir)/%.o,$(wildcard $(i)/*.s))))
+# .cpp is only used by the Haiku driver (BApplication/BWindow have no C API)
+LIBFBGFX_CXX := $(sort $(foreach i,$(GFXLIB2_DIRS),$(patsubst $(i)/%.cpp,$(libfbgfxobjdir)/%.o,$(wildcard $(i)/*.cpp))))
 LIBFBGFXPIC_C   := $(patsubst $(libfbgfxobjdir)/%,$(libfbgfxpicobjdir)/%,$(LIBFBGFX_C))
+LIBFBGFXPIC_CXX := $(patsubst $(libfbgfxobjdir)/%,$(libfbgfxpicobjdir)/%,$(LIBFBGFX_CXX))
 LIBFBGFXMT_C    := $(patsubst $(libfbgfxobjdir)/%,$(libfbgfxmtobjdir)/%,$(LIBFBGFX_C))
 LIBFBGFXMT_S    := $(patsubst $(libfbgfxobjdir)/%,$(libfbgfxmtobjdir)/%,$(LIBFBGFX_S))
+LIBFBGFXMT_CXX  := $(patsubst $(libfbgfxobjdir)/%,$(libfbgfxmtobjdir)/%,$(LIBFBGFX_CXX))
 LIBFBGFXMTPIC_C := $(patsubst $(libfbgfxobjdir)/%,$(libfbgfxmtpicobjdir)/%,$(LIBFBGFX_C))
+LIBFBGFXMTPIC_CXX := $(patsubst $(libfbgfxobjdir)/%,$(libfbgfxmtpicobjdir)/%,$(LIBFBGFX_CXX))
 
 
 RTL_LIBS := $(libdir)/$(FB_LDSCRIPT)
@@ -997,29 +1012,37 @@ $(LIBFBMTRTPIC_BAS): $(libfbrtmtpicobjdir)/%.o: %.c $(LIBFBRT_BI) | $(libfbrtmtp
 .PHONY: gfxlib2
 gfxlib2: $(GFX_LIBS)
 
-$(libdir)/libfbgfx.a: $(LIBFBGFX_C) $(LIBFBGFX_S) | $(libdir)
+$(libdir)/libfbgfx.a: $(LIBFBGFX_C) $(LIBFBGFX_S) $(LIBFBGFX_CXX) | $(libdir)
 	$(QUIET_AR)rm -f $@; $(AR) rcs $@ $^
 $(LIBFBGFX_C): $(libfbgfxobjdir)/%.o: %.c $(LIBFBGFX_H) | $(libfbgfxobjdir)
 	$(QUIET_CC)$(CC) $(ALLCFLAGS) -c $< -o $@
 $(LIBFBGFX_S): $(libfbgfxobjdir)/%.o: %.s $(LIBFBGFX_H) | $(libfbgfxobjdir)
 	$(QUIET_CPPAS)$(CC) -x assembler-with-cpp $(ALLCFLAGS) -c $< -o $@
+$(LIBFBGFX_CXX): $(libfbgfxobjdir)/%.o: %.cpp $(LIBFBGFX_H) | $(libfbgfxobjdir)
+	$(QUIET_CC)$(CXX) $(ALLCXXFLAGS) -c $< -o $@
 
-$(libdir)/libfbgfxpic.a: $(LIBFBGFXPIC_C) | $(libdir)
+$(libdir)/libfbgfxpic.a: $(LIBFBGFXPIC_C) $(LIBFBGFXPIC_CXX) | $(libdir)
 	$(QUIET_AR)rm -f $@; $(AR) rcs $@ $^
 $(LIBFBGFXPIC_C): $(libfbgfxpicobjdir)/%.o: %.c $(LIBFBGFX_H) | $(libfbgfxpicobjdir)
 	$(QUIET_CC)$(CC) -fPIC $(ALLCFLAGS) -c $< -o $@
+$(LIBFBGFXPIC_CXX): $(libfbgfxpicobjdir)/%.o: %.cpp $(LIBFBGFX_H) | $(libfbgfxpicobjdir)
+	$(QUIET_CC)$(CXX) -fPIC $(ALLCXXFLAGS) -c $< -o $@
 
-$(libdir)/libfbgfxmt.a: $(LIBFBGFXMT_C) $(LIBFBGFXMT_S) | $(libdir)
+$(libdir)/libfbgfxmt.a: $(LIBFBGFXMT_C) $(LIBFBGFXMT_S) $(LIBFBGFXMT_CXX) | $(libdir)
 	$(QUIET_AR)rm -f $@; $(AR) rcs $@ $^
 $(LIBFBGFXMT_C): $(libfbgfxmtobjdir)/%.o: %.c $(LIBFBGFX_H) | $(libfbgfxmtobjdir)
 	$(QUIET_CC)$(CC) -DENABLE_MT $(ALLCFLAGS) -c $< -o $@
 $(LIBFBGFXMT_S): $(libfbgfxmtobjdir)/%.o: %.s $(LIBFBGFX_H) | $(libfbgfxmtobjdir)
 	$(QUIET_CPPAS)$(CC) -x assembler-with-cpp -DENABLE_MT $(ALLCFLAGS) -c $< -o $@
+$(LIBFBGFXMT_CXX): $(libfbgfxmtobjdir)/%.o: %.cpp $(LIBFBGFX_H) | $(libfbgfxmtobjdir)
+	$(QUIET_CC)$(CXX) -DENABLE_MT $(ALLCXXFLAGS) -c $< -o $@
 
-$(libdir)/libfbgfxmtpic.a: $(LIBFBGFXMTPIC_C) | $(libdir)
+$(libdir)/libfbgfxmtpic.a: $(LIBFBGFXMTPIC_C) $(LIBFBGFXMTPIC_CXX) | $(libdir)
 	$(QUIET_AR)rm -f $@; $(AR) rcs $@ $^
 $(LIBFBGFXMTPIC_C): $(libfbgfxmtpicobjdir)/%.o: %.c $(LIBFBGFX_H) | $(libfbgfxmtpicobjdir)
 	$(QUIET_CC)$(CC) -DENABLE_MT -fPIC $(ALLCFLAGS) -c $< -o $@
+$(LIBFBGFXMTPIC_CXX): $(libfbgfxmtpicobjdir)/%.o: %.cpp $(LIBFBGFX_H) | $(libfbgfxmtpicobjdir)
+	$(QUIET_CC)$(CXX) -DENABLE_MT -fPIC $(ALLCXXFLAGS) -c $< -o $@
 
 ################################################################################
 

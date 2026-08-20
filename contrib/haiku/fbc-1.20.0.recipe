@@ -4,12 +4,11 @@ syntax compatible with Microsoft QuickBasic. It supports procedural, \
 object-oriented, and meta-programming, and provides a large standard \
 runtime library plus thin bindings to popular C libraries.
 
-This build is console-mode only: gfxlib2 (the SCREEN-mode graphics/sound \
-library) has not been ported to Haiku yet, so BAS programs using SCREEN, \
-graphics statements, or the built-in sound library are not supported by \
-this package. ThreadCall is supported (linked against Haiku's libffi), and \
-full console features (COLOR/LOCATE/INKEY$/etc., linked against Haiku's \
-ncurses6 package) work."
+Full console features (COLOR/LOCATE/INKEY$/etc., linked against Haiku's \
+ncurses6 package) and ThreadCall (linked against Haiku's libffi) both work. \
+SCREEN-mode graphics (gfxlib2) uses a native Haiku (BApplication/BWindow) \
+driver: 32bpp truecolor SCREEN modes and keyboard input work; indexed/\
+palette color depths, mouse input, and OpenGL are not yet supported."
 HOMEPAGE="https://freebasic.net/"
 COPYRIGHT="2004-2025 The FreeBASIC development team"
 LICENSE="GNU GPL v2"
@@ -49,15 +48,12 @@ BUILD_REQUIRES="$BUILD_PREREQUIRES"
 
 BUILD()
 {
-	# gfxlib2 is intentionally not built (no Haiku driver exists yet, see
-	# DESCRIPTION); building only `compiler` + `rtlib` avoids ever needing
-	# gfxlib2's X11 dependencies, which Haiku doesn't have.
-	make compiler rtlib -j$jobArgs
+	make compiler rtlib gfxlib2 -j$jobArgs
 }
 
 INSTALL()
 {
-	make install-compiler install-includes install-rtlib prefix="$prefix"
+	make install-compiler install-includes install-rtlib install-gfxlib2 prefix="$prefix"
 
 	mkdir -p "$manDir/man1"
 	cp "$sourceDir/doc/fbc.1" "$manDir/man1/fbc.1"

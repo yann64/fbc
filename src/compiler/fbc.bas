@@ -3090,9 +3090,12 @@ private sub hCheckArgs()
 	end if
 
 	'' 4.5. Enable -pic automatically when building a Unix shared library
-	''      or Android executable (required on Android 5+)
+	''      or Android executable (required on Android 5+), or anything at
+	''      all on Haiku (every Haiku binary, including plain .o/.exe
+	''      output, is PIC/ET_DYN -- see hTargetNeedsPIC()).
 	if( (fbGetOption( FB_COMPOPT_OUTTYPE ) = FB_OUTTYPE_DYNAMICLIB) or _
-	    (fbGetOption( FB_COMPOPT_TARGET ) = FB_COMPTARGET_ANDROID) ) then
+	    (fbGetOption( FB_COMPOPT_TARGET ) = FB_COMPTARGET_ANDROID) or _
+	    (fbGetOption( FB_COMPOPT_TARGET ) = FB_COMPTARGET_HAIKU) ) then
 		if( hTargetNeedsPIC( ) ) then
 			fbSetOption( FB_COMPOPT_PIC, TRUE )
 		end if
@@ -4366,10 +4369,15 @@ private sub hAddDefaultLibs( )
 				fbcAddDefLib( "Xrender" )
 			#endif
 
-		case FB_COMPTARGET_ANDROID, FB_COMPTARGET_HAIKU
-			'' gfxlib2 has no Haiku driver yet (no X11 on Haiku by default;
-			'' would need a native BeAPI backend) -- out of scope for the
-			'' initial console-only port.
+		case FB_COMPTARGET_HAIKU
+			'' Native BeAPI driver (src/gfxlib2/haiku/gfx_driver_haiku.cpp),
+			'' not X11 -- needs libbe and libstdc++ (the driver is C++,
+			'' BApplication/BWindow have no C bindings), not the X11 libs.
+			fbcAddDefLib( "be" )
+			fbcAddDefLib( "stdc++" )
+
+		case FB_COMPTARGET_ANDROID
+			'' gfxlib2 has no Android driver -- out of scope.
 			errReportEx( FB_ERRMSG_GFXLIBNOTSUPPORTEDFORTARGET, "", -1 )
 
 		end select

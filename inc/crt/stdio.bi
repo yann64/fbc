@@ -33,6 +33,8 @@
 #include once "crt/freebsd/stdio.bi"
 #elseif defined(__FB_DARWIN__)
 #include once "crt/darwin/stdio.bi"
+#elseif defined(__FB_HAIKU__)
+#include once "crt/haiku/stdio.bi"
 #elseif defined(__FB_UNIX__)
 '' Other Unices are likely to be BSD variants. stdio.bi is the most important
 '' crt header, so try to make FB work on other OSes.
