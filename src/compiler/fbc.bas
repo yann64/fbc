@@ -261,7 +261,8 @@ private sub hSetOutName( )
 		case FB_COMPTARGET_LINUX, FB_COMPTARGET_DARWIN, _
 		     FB_COMPTARGET_FREEBSD, FB_COMPTARGET_OPENBSD, _
 		     FB_COMPTARGET_NETBSD, FB_COMPTARGET_DRAGONFLY, _
-		     FB_COMPTARGET_SOLARIS, FB_COMPTARGET_ANDROID
+		     FB_COMPTARGET_SOLARIS, FB_COMPTARGET_ANDROID, _
+		     FB_COMPTARGET_HAIKU
 			fbc.outname = hStripFilename( fbc.outname ) + _
 				"lib" + hStripPath( fbc.outname ) + ".so"
 		case FB_COMPTARGET_DOS
@@ -788,6 +789,12 @@ private function hLinkFiles( ) as integer
 		case FB_CPUFAMILY_ARM
 			ldcline += "-m armelf_linux_eabi "
 		end select
+	case FB_COMPTARGET_HAIKU
+		'' Confirmed via `gcc -v` on real Haiku x86_64 hardware.
+		select case( fbGetCpuFamily( ) )
+		case FB_CPUFAMILY_X86_64
+			ldcline += "-m elf_x86_64_haiku "
+		end select
 	case FB_COMPTARGET_ANDROID
 		if( (len( fbc.sysroot ) = 0) and _
 		    (fbGetOption( FB_COMPOPT_BACKEND ) = FB_BACKEND_GCC) ) then
@@ -936,6 +943,30 @@ private function hLinkFiles( ) as integer
 			else
 				ldcline += " -e DllMainCRTStartup"
 			end if
+		end if
+
+	case FB_COMPTARGET_HAIKU
+		'' Confirmed empirically (gcc -v on a real Haiku box): ALL Haiku
+		'' binaries, including plain executables, are linked as ET_DYN
+		'' with -shared -no-undefined; there is no separate ET_EXEC form
+		'' and no explicit -dynamic-linker path is passed by gcc either
+		'' (Haiku's ld already defaults to its own runtime_loader).
+		ldcline += " -shared -no-undefined"
+
+		if( fbGetOption( FB_COMPOPT_OUTTYPE ) = FB_OUTTYPE_DYNAMICLIB ) then
+			dllname = hStripPath( hStripExt( fbc.outname ) )
+			ldcline += " -h" + hStripPath( fbc.outname )
+
+			'' Turn libfoo into foo, so it can be checked against -l foo below
+			if( left( dllname, 3 ) = "lib" ) then
+				dllname = right( dllname, len( dllname ) - 3 )
+			end if
+		end if
+
+		'' Add all symbols to the dynamic symbol table
+		if( (fbGetOption( FB_COMPOPT_OUTTYPE ) = FB_OUTTYPE_DYNAMICLIB) or _
+			fbGetOption( FB_COMPOPT_EXPORT ) ) then
+			ldcline += " --export-dynamic"
 		end if
 
 	case FB_COMPTARGET_LINUX, FB_COMPTARGET_DARWIN, _
@@ -1162,6 +1193,18 @@ private function hLinkFiles( ) as integer
 			ldcline += hFindLib( "crt0.o" )
 		end if
 
+	case FB_COMPTARGET_HAIKU
+		'' Confirmed via `gcc -v` on real Haiku x86_64 hardware: Haiku has
+		'' no crt1.o/crt0.o at all (every binary is ET_DYN, see
+		'' hTargetNeedsPIC/the FB_COMPTARGET_HAIKU case in hLinkFiles above),
+		'' and uses start_dyn.o + init_term_dyn.o instead, always alongside
+		'' the PIC crtbeginS.o (never the plain crtbegin.o). No profiling
+		'' (gcrt*) variant is known to exist for Haiku.
+		ldcline += hFindLib( "crti.o" )
+		ldcline += hFindLib( "crtbeginS.o" )
+		ldcline += hFindLib( "start_dyn.o" )
+		ldcline += hFindLib( "init_term_dyn.o" )
+
 	case FB_COMPTARGET_LINUX, FB_COMPTARGET_DARWIN, _
 		FB_COMPTARGET_FREEBSD, FB_COMPTARGET_OPENBSD, _
 		FB_COMPTARGET_NETBSD, FB_COMPTARGET_DRAGONFLY, FB_COMPTARGET_SOLARIS
@@ -1299,7 +1342,8 @@ private function hLinkFiles( ) as integer
 	select case as const fbGetOption( FB_COMPOPT_TARGET )
 	case FB_COMPTARGET_LINUX, FB_COMPTARGET_FREEBSD, _
 		FB_COMPTARGET_OPENBSD, FB_COMPTARGET_NETBSD, _
-		FB_COMPTARGET_DRAGONFLY, FB_COMPTARGET_SOLARIS
+		FB_COMPTARGET_DRAGONFLY, FB_COMPTARGET_SOLARIS, _
+		FB_COMPTARGET_HAIKU
 		if( fbGetOption( FB_COMPOPT_PIC ) ) then
 			ldcline += hFindLib( "crtendS.o" )
 		else
@@ -1333,7 +1377,7 @@ private function hLinkFiles( ) as integer
 	case FB_COMPTARGET_LINUX, FB_COMPTARGET_FREEBSD, _
 		FB_COMPTARGET_OPENBSD, FB_COMPTARGET_NETBSD, _
 		FB_COMPTARGET_DRAGONFLY, FB_COMPTARGET_SOLARIS, _
-		FB_COMPTARGET_DARWIN
+		FB_COMPTARGET_DARWIN, FB_COMPTARGET_HAIKU
 		dim as long outtype = fbGetOption( FB_COMPOPT_OUTTYPE )
 		if outtype = FB_OUTTYPE_EXECUTABLE OrElse outtype = FB_OUTTYPE_DYNAMICLIB Then
 			dim as long cpufamily = fbGetCpuFamily( )
@@ -1656,6 +1700,7 @@ dim shared as FBGNUOSINFO gnuosmap(0 to ...) => _
 	(@"solaris"    , FB_COMPTARGET_SOLARIS  ), _
 	(@"netbsd"     , FB_COMPTARGET_NETBSD   ), _
 	(@"openbsd"    , FB_COMPTARGET_OPENBSD  ), _
+	(@"haiku"      , FB_COMPTARGET_HAIKU    ), _
 	(@"xbox"       , FB_COMPTARGET_XBOX     )  _
 }
 
@@ -1764,7 +1809,8 @@ dim shared as FBOSARCHINFO fbosarchmap(0 to ...) => _
 	(@"linux"  , FB_COMPTARGET_LINUX  , FB_DEFAULT_CPUTYPE       ), _
 	(@"android", FB_COMPTARGET_ANDROID, FB_CPUTYPE_ARMV7A        ), _
 	(@"netbsd" , FB_COMPTARGET_NETBSD , FB_DEFAULT_CPUTYPE       ), _
-	(@"openbsd", FB_COMPTARGET_OPENBSD, FB_DEFAULT_CPUTYPE       )  _
+	(@"openbsd", FB_COMPTARGET_OPENBSD, FB_DEFAULT_CPUTYPE       ), _
+	(@"haiku"  , FB_COMPTARGET_HAIKU  , FB_DEFAULT_CPUTYPE       )  _
 }
 
 ''
@@ -2933,6 +2979,16 @@ end sub
 '' but Android <4.1 didn't support PIE executables. We assume 4.1+.)
 private function hTargetNeedsPIC( ) as integer
 	function = FALSE
+
+	'' On Haiku, all binaries (executables included) are linked as ET_DYN
+	'' (-shared) regardless of CPU family -- confirmed empirically: a plain
+	'' `gcc -o h h.c` on Haiku x86_64 invokes cc1 with -fPIC and links with
+	'' collect2 ... -shared -no-undefined, even for a normal executable.
+	if( fbGetOption( FB_COMPOPT_TARGET ) = FB_COMPTARGET_HAIKU ) then
+		function = TRUE
+		exit function
+	end if
+
 	if( fbGetCpuFamily( ) <> FB_CPUFAMILY_X86 ) then
 		select case as const( fbGetOption( FB_COMPOPT_TARGET ) )
 		case FB_COMPTARGET_LINUX, FB_COMPTARGET_FREEBSD, _
@@ -4228,6 +4284,14 @@ private sub hSetDefaultLibPaths( )
 		'' Help the MinGW linker to find MinGW's lib/ dir, allowing
 		'' the C:\MinGW dir to be renamed and linking to still work.
 		fbcAddLibPathFor( "libmingw32.a" )
+	case FB_COMPTARGET_HAIKU
+		'' Haiku's own binutils package bundles just enough of its own
+		'' (libroot.so, libgcc_s.so.1) for a bare `ld` invocation to work,
+		'' but anything installed via a HaikuPorts package -- e.g. libffi,
+		'' confirmed via `ld -y`/`gcc -print-file-name` on real hardware --
+		'' only lives under /boot/system/develop/lib, which isn't part of
+		'' ld's default search path (there is no /usr/lib on Haiku at all).
+		fbcAddDefLibPath( "/boot/system/develop/lib" )
 	end select
 #endif
 end sub
@@ -4289,7 +4353,10 @@ private sub hAddDefaultLibs( )
 				fbcAddDefLib( "Xrender" )
 			#endif
 
-		case FB_COMPTARGET_ANDROID
+		case FB_COMPTARGET_ANDROID, FB_COMPTARGET_HAIKU
+			'' gfxlib2 has no Haiku driver yet (no X11 on Haiku by default;
+			'' would need a native BeAPI backend) -- out of scope for the
+			'' initial console-only port.
 			errReportEx( FB_ERRMSG_GFXLIBNOTSUPPORTEDFORTARGET, "", -1 )
 
 		end select
@@ -4382,6 +4449,22 @@ private sub hAddDefaultLibs( )
 		fbcAddDefLib( "c" )
 		fbcAddDefLib( "m" )
 		fbcAddDefLib( "ncurses" )
+
+	case FB_COMPTARGET_HAIKU
+		'' Confirmed via `gcc -v` on real Haiku x86_64 hardware (hrev59979):
+		'' a plain `gcc -o out out.c` links against exactly these three,
+		'' in this order (collect2 passes -lgcc/-lgcc_s twice, once before
+		'' and once after -lroot; a single copy of each is enough for our
+		'' generic "-(" ... "-)" archive-grouped lib list).
+		'' Haiku has no separate libc/libm/libpthread.so: those are folded
+		'' into libroot.so. Static libm.a/libpthread.a/libc.a stub archives
+		'' also exist on-disk for POSIX-build-system compatibility, but
+		'' -lroot is the one that's actually load-bearing.
+		'' rtlib is built with -DDISABLE_NCURSES for the initial port, so
+		'' no -lncurses/-ltinfo is added here.
+		fbcAddDefLib( "gcc" )
+		fbcAddDefLib( "gcc_s" )
+		fbcAddDefLib( "root" )
 
 	case FB_COMPTARGET_ANDROID
 		fbcAddDefLib( "m" )

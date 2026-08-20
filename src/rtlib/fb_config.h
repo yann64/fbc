@@ -40,6 +40,9 @@
 #elif defined __APPLE__
 	#define HOST_DARWIN
 	#define HOST_UNIX
+#elif defined __HAIKU__
+	#define HOST_HAIKU
+	#define HOST_UNIX
 #elif (defined sun || defined __sun) && defined __SVR4
 	#define HOST_SOLARIS
 	#define HOST_UNIX

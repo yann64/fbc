@@ -228,6 +228,8 @@ ifdef TARGET
       TARGET_OS := freebsd
     else ifneq ($(filter dragonfly%,$(triplet)),)
       TARGET_OS := dragonfly
+    else ifneq ($(filter haiku%,$(triplet)),)
+      TARGET_OS := haiku
     else ifneq ($(filter linux%,$(triplet)),)
       # GNU/Linux. arm-linux-androideabi is not.
       TARGET_OS := linux
@@ -268,6 +270,8 @@ else
       TARGET_OS := freebsd
     else ifeq ($(uname),DragonFly)
       TARGET_OS := dragonfly
+    else ifeq ($(uname),Haiku)
+      TARGET_OS := haiku
     else ifeq ($(uname),Linux)
       TARGET_OS := linux
     else ifneq ($(findstring MINGW,$(uname)),)
@@ -389,7 +393,7 @@ endif
 
 # ENABLE_PIC for every system where we need separate
 # -fPIC versions of FB libs besides the normal ones
-ifneq ($(filter android freebsd dragonfly freebsd linux netbsd openbsd solaris,$(TARGET_OS)),)
+ifneq ($(filter android freebsd dragonfly freebsd haiku linux netbsd openbsd solaris,$(TARGET_OS)),)
   ENABLE_PIC := YesPlease
 endif
 ifneq ($(TARGET_OS),android)
@@ -588,6 +592,14 @@ ifeq ($(TARGET_OS),darwin)
   endif
 endif
 
+ifeq ($(TARGET_OS),haiku)
+  # No X11 server, no gpm, and ncurses isn't part of the base system
+  # (available via HaikuPorts, but not assumed present for the initial port).
+  # libffi IS present on Haiku by default (libffi.so + ffi.h under
+  # /boot/system/develop/{lib,headers}), so ThreadCall support is enabled.
+  ALLCFLAGS += -DDISABLE_X11 -DDISABLE_NCURSES
+endif
+
 ifneq ($(filter cygwin win32,$(TARGET_OS)),)
   # Increase compiler's available stack size, it uses lots of recursion
   ALLFBLFLAGS += -t 2048
@@ -667,7 +679,7 @@ RTLIB_DIRS := $(srcdir)/rtlib $(srcdir)/rtlib/$(TARGET_OS) $(srcdir)/rtlib/$(TAR
 ifeq ($(TARGET_OS),cygwin)
   RTLIB_DIRS += $(srcdir)/rtlib/win32
 endif
-ifneq ($(filter android darwin freebsd dragonfly linux netbsd openbsd solaris,$(TARGET_OS)),)
+ifneq ($(filter android darwin freebsd dragonfly haiku linux netbsd openbsd solaris,$(TARGET_OS)),)
   RTLIB_DIRS += $(srcdir)/rtlib/unix
 endif
 GFXLIB2_DIRS := $(patsubst $(srcdir)/rtlib%,$(srcdir)/gfxlib2%,$(RTLIB_DIRS))
@@ -677,7 +689,7 @@ FBRT_DIRS := $(srcdir)/fbrt $(srcdir)/fbrt/$(TARGET_OS) $(srcdir)/fbrt/$(TARGET_
 ifeq ($(TARGET_OS),cygwin)
   FBRT_DIRS += $(srcdir)/fbrt/win32
 endif
-ifneq ($(filter darwin freebsd dragonfly linux netbsd openbsd solaris,$(TARGET_OS)),)
+ifneq ($(filter darwin freebsd dragonfly haiku linux netbsd openbsd solaris,$(TARGET_OS)),)
   FBRT_DIRS += $(srcdir)/fbrt/unix
 endif
 
@@ -1137,7 +1149,7 @@ gitdist:
 # If FBPACKAGE is defined then FBPACKTARGET has no effect.
 #
 ifndef FBPACKAGE
-  ifneq ($(filter darwin freebsd dragonfly linux netbsd openbsd solaris,$(TARGET_OS)),)
+  ifneq ($(filter darwin freebsd dragonfly haiku linux netbsd openbsd solaris,$(TARGET_OS)),)
     ifdef ENABLE_STANDALONE
       FBPACKAGE := FreeBASIC-$(FBVERSION)-$(FBPACKTARGET)-standalone
     else
@@ -1327,7 +1339,7 @@ bindist:
 
 	# install.sh for normal Linux/BSD setups
   ifndef ENABLE_STANDALONE
-    ifneq ($(filter darwin freebsd dragonfly linux netbsd openbsd solaris,$(TARGET_OS)),)
+    ifneq ($(filter darwin freebsd dragonfly haiku linux netbsd openbsd solaris,$(TARGET_OS)),)
 	cp $(rootdir)contrib/unix-installer/install.sh $(FBPACKAGE)
     endif
   endif
@@ -1560,8 +1572,13 @@ endif
 
 # Use gcc to link fbc from the bootstrap .o's
 # (assuming the rtlib was built already)
-ifneq ($(filter darwin freebsd dragonfly linux netbsd openbsd solaris,$(TARGET_OS)),)
-  BOOTSTRAP_LIBS := -lncurses -lm -pthread
+ifneq ($(filter darwin freebsd dragonfly haiku linux netbsd openbsd solaris,$(TARGET_OS)),)
+  BOOTSTRAP_LIBS := -lm -pthread
+  ifneq ($(TARGET_OS),haiku)
+    # Haiku rtlib is built with -DDISABLE_NCURSES for the initial port,
+    # so nothing here references libncurses.
+    BOOTSTRAP_LIBS += -lncurses
+  endif
 endif
 $(BOOTSTRAP_FBC): rtlib $(BOOTSTRAP_OBJ)
 	$(QUIET_LINK)$(CC) -o $@ $(libdir)/fbrt0.o bootstrap/$(FBTARGET)/*.o $(libdir)/libfb.a $(BOOTSTRAP_LIBS)

@@ -23,6 +23,8 @@
 #elseif defined(__FB_DARWIN__)
 '' FIXME: may be wrong
 #include once "crt/linux/time.bi"
+#elseif defined(__FB_HAIKU__)
+#include once "crt/haiku/time.bi"
 #else
 #error Unsupported platform
 #endif

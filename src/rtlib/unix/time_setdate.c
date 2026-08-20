@@ -3,6 +3,11 @@
 
 int fb_hSetDate( int y, int m, int d )
 {
+#ifdef HOST_HAIKU
+	/* Haiku has no settimeofday(3); setting the system clock isn't
+	   exposed through the POSIX layer at all. */
+	return -1;
+#else
 	const int month_len[12] =
 	{
 		2678400, 2419200, 2678400, 2592000, 2678400, 2592000,
@@ -31,4 +36,5 @@ int fb_hSetDate( int y, int m, int d )
 		return -1;
 
 	return 0;
+#endif
 }

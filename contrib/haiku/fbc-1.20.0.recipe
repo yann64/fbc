@@ -1,0 +1,60 @@
+SUMMARY="Compiler for the FreeBASIC programming language"
+DESCRIPTION="FreeBASIC (fbc) is a free, multiplatform BASIC compiler with a \
+syntax compatible with Microsoft QuickBasic. It supports procedural, \
+object-oriented, and meta-programming, and provides a large standard \
+runtime library plus thin bindings to popular C libraries.
+
+This build is console-mode only: gfxlib2 (the SCREEN-mode graphics/sound \
+library) has not been ported to Haiku yet, so BAS programs using SCREEN, \
+graphics statements, or the built-in sound library are not supported by \
+this package. ThreadCall is supported (linked against Haiku's libffi)."
+HOMEPAGE="https://freebasic.net/"
+COPYRIGHT="2004-2025 The FreeBASIC development team"
+LICENSE="GNU GPL v2"
+REVISION="1"
+
+# TODO before this recipe can actually be built by haikuporter: point
+# SOURCE_URI at a fetchable tarball/tag of the Haiku port branch (e.g. once
+# https://github.com/<org>/fbc_haiku's `haiku` branch is tagged and pushed)
+# and fill in the matching CHECKSUM_SHA256. haikuporter needs a URL it can
+# download and verify -- it can't build from an uncommitted local tree.
+SOURCE_URI="https://github.com/<org>/fbc_haiku/archive/refs/tags/haiku-$portVersion.tar.gz"
+CHECKSUM_SHA256="<fill in after the release tarball exists>"
+SOURCE_DIR="fbc_haiku-haiku-$portVersion"
+
+ARCHITECTURES="x86_64"
+
+PROVIDES="
+	fbc = $portVersion
+	compiler(basic) = $portVersion
+	cmd:fbc = $portVersion
+	"
+REQUIRES="
+	haiku
+	lib:libffi
+	"
+
+BUILD_PREREQUIRES="
+	haiku_devel
+	cmd:gcc
+	cmd:make
+	lib:libffi_devel
+	"
+
+BUILD_REQUIRES="$BUILD_PREREQUIRES"
+
+BUILD()
+{
+	# gfxlib2 is intentionally not built (no Haiku driver exists yet, see
+	# DESCRIPTION); building only `compiler` + `rtlib` avoids ever needing
+	# gfxlib2's X11 dependencies, which Haiku doesn't have.
+	make compiler rtlib -j$jobArgs
+}
+
+INSTALL()
+{
+	make install-compiler install-includes install-rtlib prefix="$prefix"
+
+	mkdir -p "$manDir/man1"
+	cp "$sourceDir/doc/fbc.1" "$manDir/man1/fbc.1"
+}

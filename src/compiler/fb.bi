@@ -247,6 +247,7 @@ enum FB_COMPTARGET
 	FB_COMPTARGET_DARWIN
 	FB_COMPTARGET_NETBSD
 	FB_COMPTARGET_JS
+	FB_COMPTARGET_HAIKU
 	FB_COMPTARGETS
 end enum
 
@@ -423,6 +424,10 @@ const FB_DEFAULT_TARGET     = FB_COMPTARGET_NETBSD
 const FB_HOST_EXEEXT        = ""
 const FB_HOST_PATHDIV       = "/"
 const FB_DEFAULT_TARGET     = FB_COMPTARGET_ANDROID
+#elseif defined(__FB_HAIKU__)
+const FB_HOST_EXEEXT        = ""
+const FB_HOST_PATHDIV       = "/"
+const FB_DEFAULT_TARGET     = FB_COMPTARGET_HAIKU
 #else
 #error Unsupported host
 #endif

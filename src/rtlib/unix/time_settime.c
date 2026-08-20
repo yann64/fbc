@@ -3,6 +3,11 @@
 
 int fb_hSetTime( int h, int m, int s )
 {
+#ifdef HOST_HAIKU
+	/* Haiku has no settimeofday(3); setting the system clock isn't
+	   exposed through the POSIX layer at all. */
+	return -1;
+#else
 	struct timeval tv;
 	gettimeofday( &tv, NULL );
 	tv.tv_sec -= (tv.tv_sec % 86400);
@@ -10,4 +15,5 @@ int fb_hSetTime( int h, int m, int s )
 	if( settimeofday( &tv, NULL ) )
 		return -1;
 	return 0;
+#endif
 }

@@ -26,6 +26,8 @@
 #include once "crt/dos/wchar.bi"
 #elseif defined(__FB_DARWIN__)
 #include once "crt/linux/wchar.bi"
+#elseif defined(__FB_HAIKU__)
+#include once "crt/haiku/wchar.bi"
 #else
 #error Unsupported platform
 #endif
