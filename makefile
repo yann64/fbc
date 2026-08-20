@@ -593,11 +593,12 @@ ifeq ($(TARGET_OS),darwin)
 endif
 
 ifeq ($(TARGET_OS),haiku)
-  # No X11 server, no gpm, and ncurses isn't part of the base system
-  # (available via HaikuPorts, but not assumed present for the initial port).
+  # No X11 server and no gpm on Haiku, so those stay disabled.
   # libffi IS present on Haiku by default (libffi.so + ffi.h under
   # /boot/system/develop/{lib,headers}), so ThreadCall support is enabled.
-  ALLCFLAGS += -DDISABLE_X11 -DDISABLE_NCURSES
+  # ncurses (termcap.h/curses.h/libncurses.so) is a HaikuPorts package, not
+  # part of the base OS -- install ncurses6_devel to build this.
+  ALLCFLAGS += -DDISABLE_X11
 endif
 
 ifneq ($(filter cygwin win32,$(TARGET_OS)),)
@@ -1573,12 +1574,7 @@ endif
 # Use gcc to link fbc from the bootstrap .o's
 # (assuming the rtlib was built already)
 ifneq ($(filter darwin freebsd dragonfly haiku linux netbsd openbsd solaris,$(TARGET_OS)),)
-  BOOTSTRAP_LIBS := -lm -pthread
-  ifneq ($(TARGET_OS),haiku)
-    # Haiku rtlib is built with -DDISABLE_NCURSES for the initial port,
-    # so nothing here references libncurses.
-    BOOTSTRAP_LIBS += -lncurses
-  endif
+  BOOTSTRAP_LIBS := -lncurses -lm -pthread
 endif
 $(BOOTSTRAP_FBC): rtlib $(BOOTSTRAP_OBJ)
 	$(QUIET_LINK)$(CC) -o $@ $(libdir)/fbrt0.o bootstrap/$(FBTARGET)/*.o $(libdir)/libfb.a $(BOOTSTRAP_LIBS)

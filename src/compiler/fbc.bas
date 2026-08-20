@@ -4473,11 +4473,14 @@ private sub hAddDefaultLibs( )
 		'' into libroot.so. Static libm.a/libpthread.a/libc.a stub archives
 		'' also exist on-disk for POSIX-build-system compatibility, but
 		'' -lroot is the one that's actually load-bearing.
-		'' rtlib is built with -DDISABLE_NCURSES for the initial port, so
-		'' no -lncurses/-ltinfo is added here.
 		fbcAddDefLib( "gcc" )
 		fbcAddDefLib( "gcc_s" )
 		fbcAddDefLib( "root" )
+		'' Haiku's ncurses6 (a HaikuPorts package, not part of the base OS --
+		'' see hSetDefaultLibPaths above for /boot/system/develop/lib) bundles
+		'' termcap directly into libncurses.so; there's no separate libtinfo
+		'' split to prefer like on Linux.
+		fbcAddDefLib( "ncurses" )
 
 	case FB_COMPTARGET_ANDROID
 		fbcAddDefLib( "m" )

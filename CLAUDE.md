@@ -139,10 +139,15 @@ signal — it passes 100% across all 4 dialects on Haiku.
 
 - **makefile**: `haiku` OS detection (both `TARGET=` triplet and `uname`
   paths) and all recurring Unix-family filter lists updated. Haiku
-  `ALLCFLAGS` block sets `-DDISABLE_X11 -DDISABLE_NCURSES` (Haiku has no X11
-  server and doesn't ship ncurses/terminfo; `-DDISABLE_FFI` was tried
-  initially but **removed** — libffi.so + ffi.h are present on stock Haiku,
-  so ThreadCall works).
+  `ALLCFLAGS` block sets `-DDISABLE_X11` only (no X11 server on Haiku).
+  `-DDISABLE_FFI`/`-DDISABLE_NCURSES` were both tried initially but
+  **removed**: libffi and ncurses6 (`termcap.h`/`curses.h`, `libncurses.so`
+  → `libncursesw.so`, bundles the classic termcap API directly, no separate
+  libtinfo split like on Linux) both work once
+  `ncurses6_devel`/`libffi_devel` are installed — full console features
+  (COLOR/LOCATE/INKEY$/WIDTH/etc.) and ThreadCall both verified working.
+  ncurses6 isn't part of the base OS install, unlike libffi — see the
+  haikuporter recipe's `BUILD_PREREQUIRES`/`REQUIRES`.
 - **`src/compiler/fb.bi`/`fb.bas`/`fbc.bas`**: `FB_COMPTARGET_HAIKU` added
   throughout. The important, Haiku-specific (not just "add to the Unix-family
   case list") logic lives in `hLinkFiles()` in `fbc.bas`:
@@ -199,13 +204,8 @@ signal — it passes 100% across all 4 dialects on Haiku.
 
 ### Known gaps / deliberately out of scope
 
-- **gfxlib2 / `SCREEN` graphics** — not ported, not currently planned (see
-  architecture section above). Correctly produces a compile error rather
-  than broken output.
-- **ncurses/terminfo console features** — disabled (`DISABLE_NCURSES`).
-  Haiku doesn't ship ncurses by default (HaikuPorts has `ncurses6` available
-  if this is revisited); rtlib's `hinit_enable_vt100_escapes.c` fallback
-  path is what's actually active.
+- **gfxlib2 / `SCREEN` graphics** — being actively worked on now, see its own
+  section below. Still produces a clean compile error until a driver exists.
 - **`inc/crt/stdio.bi`** on Haiku uses the FreeBSD `FILE` struct layout via
   the pre-existing generic-Unix fallback (with a build-time warning) rather
   than a real Haiku-verified one. Fine for opaque `FILE*` passthrough (the
@@ -255,3 +255,15 @@ signal — it passes 100% across all 4 dialects on Haiku.
   compiler`, `make rtlib` with the system fbc) — the Haiku-specific edits
   all extend existing filter lists/case statements, so a Linux regression
   would mean an existing OS's behavior accidentally changed.
+- **A silently-failed `scp` of `src/compiler/fbc.bas` produced a genuinely
+  misleading false-positive once**: a plain `scp file1 file2 user@host:dir/`
+  copied `file1` but not `file2` with no visible error, so the box kept
+  compiling the *old* `fbc.bas`. The self-hosted rebuild still "succeeded"
+  (the *linker* used to build that new, stale binary was the already-fixed
+  one from the previous step, so no undefined-symbol error surfaced at build
+  time) — the regression only showed up when the resulting binary was used
+  to compile a *different* program exercising the missing logic. Lesson: after
+  any multi-file sync to the box, `grep` the actual file on the box for the
+  change before trusting a build that "succeeded", and test the freshly
+  built binary against a small program that specifically exercises whatever
+  just changed, not just that it links / doesn't crash.

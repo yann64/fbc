@@ -7,7 +7,9 @@ runtime library plus thin bindings to popular C libraries.
 This build is console-mode only: gfxlib2 (the SCREEN-mode graphics/sound \
 library) has not been ported to Haiku yet, so BAS programs using SCREEN, \
 graphics statements, or the built-in sound library are not supported by \
-this package. ThreadCall is supported (linked against Haiku's libffi)."
+this package. ThreadCall is supported (linked against Haiku's libffi), and \
+full console features (COLOR/LOCATE/INKEY$/etc., linked against Haiku's \
+ncurses6 package) work."
 HOMEPAGE="https://freebasic.net/"
 COPYRIGHT="2004-2025 The FreeBASIC development team"
 LICENSE="GNU GPL v2"
@@ -32,6 +34,7 @@ PROVIDES="
 REQUIRES="
 	haiku
 	lib:libffi
+	ncurses6
 	"
 
 BUILD_PREREQUIRES="
@@ -39,6 +42,7 @@ BUILD_PREREQUIRES="
 	cmd:gcc
 	cmd:make
 	lib:libffi_devel
+	ncurses6_devel
 	"
 
 BUILD_REQUIRES="$BUILD_PREREQUIRES"
