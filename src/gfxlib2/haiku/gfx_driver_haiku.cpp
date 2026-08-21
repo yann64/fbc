@@ -11,9 +11,12 @@
  * makefile) linked against libbe/libstdc++, unlike the rest of gfxlib2.
  *
  * Scope: 32bpp truecolor and 8bpp indexed/palette SCREEN modes, no
- * fullscreen/multi-monitor handling, no OpenGL, and SetMouse() can show/hide
- * the cursor and track clip state but can't reposition the system cursor.
- * See CLAUDE.md for the full list of known gaps.
+ * fullscreen/multi-monitor handling, and SetMouse() can show/hide the
+ * cursor and track clip state but can't reposition the system cursor. This
+ * driver explicitly rejects DRIVER_OPENGL (see driver_init() below) --
+ * OpenGL support is a separate driver, gfx_driver_opengl_haiku.cpp, which
+ * gfx_haiku.c tries first for GFX_OPENGL requests. See CLAUDE.md for the
+ * full list of known gaps.
  */
 
 #include <Application.h>
@@ -33,7 +36,12 @@ extern "C" {
 #include <pthread.h>
 #include <string.h>
 
+#include "haiku_input.h"
+
 namespace {
+
+using fb_haiku::KeyToScancode;
+using fb_haiku::HaikuButtonsToFbButtons;
 
 class FBHaikuApp;
 class FBHaikuWindow;
@@ -76,63 +84,6 @@ struct HaikuDriverState {
 };
 
 HaikuDriverState g_state;
-
-/* Best-effort DOS-scancode mapping for the handful of non-printable keys
- * FB programs commonly check for (arrows, editing keys, ESC/ENTER/etc, and
- * F1-F12). Haiku's raw hardware key codes don't correspond to AT scancodes:
- * for most keys, the "raw_char" field carries a stable BeOS B_*_ARROW-style
- * constant regardless of keyboard layout, which is enough to map from; for
- * function keys, raw_char is just a generic marker, so the "key" field
- * (matched against the B_F1_KEY..B_F12_KEY raw hardware codes) plus the
- * B_FUNCTION_KEY modifiers bit are used instead.
- */
-int32 KeyToScancode(int32 rawChar, int32 key, int32 modifiers)
-{
-	if (modifiers & B_FUNCTION_KEY) {
-		switch (key) {
-		case B_F1_KEY:  return SC_F1;
-		case B_F2_KEY:  return SC_F2;
-		case B_F3_KEY:  return SC_F3;
-		case B_F4_KEY:  return SC_F4;
-		case B_F5_KEY:  return SC_F5;
-		case B_F6_KEY:  return SC_F6;
-		case B_F7_KEY:  return SC_F7;
-		case B_F8_KEY:  return SC_F8;
-		case B_F9_KEY:  return SC_F9;
-		case B_F10_KEY: return SC_F10;
-		case B_F11_KEY: return SC_F11;
-		case B_F12_KEY: return SC_F12;
-		}
-	}
-
-	switch (rawChar) {
-	case B_ESCAPE: return SC_ESCAPE;
-	case B_BACKSPACE: return SC_BACKSPACE;
-	case B_ENTER: return SC_ENTER;
-	case B_TAB: return SC_TAB;
-	case B_SPACE: return SC_SPACE;
-	case B_LEFT_ARROW: return SC_LEFT;
-	case B_RIGHT_ARROW: return SC_RIGHT;
-	case B_UP_ARROW: return SC_UP;
-	case B_DOWN_ARROW: return SC_DOWN;
-	case B_INSERT: return SC_INSERT;
-	case B_DELETE: return SC_DELETE;
-	case B_HOME: return SC_HOME;
-	case B_END: return SC_END;
-	case B_PAGE_UP: return SC_PAGEUP;
-	case B_PAGE_DOWN: return SC_PAGEDOWN;
-	}
-	return 0;
-}
-
-int HaikuButtonsToFbButtons(int32 haikuButtons)
-{
-	int buttons = 0;
-	if (haikuButtons & B_PRIMARY_MOUSE_BUTTON) buttons |= BUTTON_LEFT;
-	if (haikuButtons & B_SECONDARY_MOUSE_BUTTON) buttons |= BUTTON_RIGHT;
-	if (haikuButtons & B_TERTIARY_MOUSE_BUTTON) buttons |= BUTTON_MIDDLE;
-	return buttons;
-}
 
 class FBHaikuView : public BView {
 public:

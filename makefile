@@ -596,13 +596,14 @@ ifeq ($(TARGET_OS),darwin)
 endif
 
 ifeq ($(TARGET_OS),haiku)
-  # No X11 server and no gpm on Haiku, so those stay disabled. The Haiku
-  # gfxlib2 driver (src/gfxlib2/haiku/) doesn't support OpenGL either.
+  # No X11 server and no gpm on Haiku, so those stay disabled. OpenGL IS
+  # supported -- src/gfxlib2/haiku/gfx_driver_opengl_haiku.cpp, a native
+  # driver against Haiku's OpenGL Kit (BGLView), not X11/GLX.
   # libffi IS present on Haiku by default (libffi.so + ffi.h under
   # /boot/system/develop/{lib,headers}), so ThreadCall support is enabled.
   # ncurses (termcap.h/curses.h/libncurses.so) is a HaikuPorts package, not
   # part of the base OS -- install ncurses6_devel to build this.
-  ALLCFLAGS += -DDISABLE_X11 -DDISABLE_OPENGL
+  ALLCFLAGS += -DDISABLE_X11
 endif
 
 ifneq ($(filter cygwin win32,$(TARGET_OS)),)

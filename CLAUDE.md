@@ -9,8 +9,8 @@ This repository is a port of **fbc**, the FreeBASIC compiler
 `haiku` branch (off `master`, which stays an unmodified upstream mirror).
 
 **Current status: a working, self-hosted fbc exists and runs natively on real
-Haiku hardware, with full console features, ThreadCall, and a native
-graphics driver.** All 4 language-dialect log-test suites
+Haiku hardware, with full console features, ThreadCall, and native graphics
+drivers (both plain 2D and OpenGL).** All 4 language-dialect log-test suites
 (`fb`/`fblite`/`qb`/`deprecated`) pass with zero failures, and the full
 fbcunit unit-test suite passes 1,154,483 / 1,154,485 assertions (the 2
 failures are a benign libm precision difference, see below — not a port
@@ -54,10 +54,13 @@ components:
   BeAPI (`BApplication`/`BWindow`/`BView`/`BBitmap`) — no existing fbc
   gfxlib2 backend was a usable template (the closest precedent for "a
   from-scratch native windowed driver" is win32's GDI driver, structurally,
-  not code-reusably). Since BeAPI has no C bindings, this driver is **C++**
-  (`gfx_driver_haiku.cpp`), the only `.cpp` anywhere in gfxlib2/rtlib — see
-  "gfxlib2 driver" below for the build-system and design details. Scope:
-  32bpp truecolor and 8bpp indexed/palette SCREEN modes, keyboard, mouse.
+  not code-reusably). Since BeAPI has no C bindings, these drivers are
+  **C++** (`gfx_driver_haiku.cpp`, `gfx_driver_opengl_haiku.cpp`), the only
+  `.cpp` files anywhere in gfxlib2/rtlib — see "gfxlib2 driver" below for
+  the build-system and design details. Scope: 32bpp truecolor and 8bpp
+  indexed/palette SCREEN modes, keyboard, mouse, and a separate OpenGL
+  driver against Haiku's OpenGL Kit (`BGLView`), both 2D-via-GL-texture and
+  raw GL primitives.
 
 Supporting trees:
 - **`inc/`** — FreeBASIC header (`.bi`) files: stdlib-style (`crt/`,
@@ -146,8 +149,9 @@ have nothing to do with the actual test content.
 
 - **makefile**: `haiku` OS detection (both `TARGET=` triplet and `uname`
   paths) and all recurring Unix-family filter lists updated. Haiku
-  `ALLCFLAGS` sets `-DDISABLE_X11 -DDISABLE_OPENGL` only (no X11 server, and
-  the Haiku gfxlib2 driver doesn't do OpenGL). libffi and ncurses6
+  `ALLCFLAGS` sets `-DDISABLE_X11` only (no X11 server; OpenGL is supported,
+  via Haiku's own OpenGL Kit, not X11/GLX — see the "OpenGL" bullet below).
+  libffi and ncurses6
   (`termcap.h`/`curses.h`, `libncurses.so` → `libncursesw.so`, bundles the
   classic termcap API directly, no separate libtinfo split like on Linux)
   both work once `ncurses6_devel`/`libffi_devel` are installed — full
@@ -156,7 +160,8 @@ have nothing to do with the actual test content.
   libffi — see the haikuporter recipe's `BUILD_PREREQUIRES`/`REQUIRES`.
   Also added `CXX`/`ALLCXXFLAGS` and parallel `LIBFBGFX_CXX` build rules (4
   variants: plain/PIC/MT/MTPIC) alongside the existing `_C`/`_S` ones — the
-  only `.cpp` in the whole tree is the Haiku gfxlib2 driver (see below), so
+  only `.cpp` files in the whole tree are the two Haiku gfxlib2 drivers (see
+  below), so
   this is otherwise a no-op for every other target.
 - **`src/compiler/fb.bi`/`fb.bas`/`fbc.bas`**: `FB_COMPTARGET_HAIKU` added
   throughout. The important, Haiku-specific (not just "add to the Unix-family
@@ -217,15 +222,23 @@ have nothing to do with the actual test content.
   touching those globals (fbcunit's own console output, for one) failed to
   link until this had a real Haiku binding instead of the generic-Unix
   fallback).
-- **`src/gfxlib2/haiku/`** — the native graphics driver, three files:
-  `gfx_driver_haiku.cpp` (the actual `GFXDRIVER` implementation — see
-  fb_gfx.h's doc comments for the interface fbc expects: gfxlib2's core does
-  all software rasterization into `__fb_gfx->framebuffer`, a plain malloc'd
-  buffer; the driver's whole job is get a window on screen, blit that
-  buffer into it, and turn OS input events into `fb_hPostEvent()` calls),
-  `gfx_haiku.c` (plain C, provides `__fb_gfx_drivers_list[]`/
-  `fb_hScreenInfo()`, mirrors `gfx_unix.c`'s role), `fb_gfx_haiku.h` (the
-  `extern "C"` bridge declaring the driver struct symbol for the C file).
+- **`src/gfxlib2/haiku/`** — the native graphics drivers. `gfx_driver_haiku.cpp`
+  is the plain `GFXDRIVER` implementation — see fb_gfx.h's doc comments for
+  the interface fbc expects: gfxlib2's core does all software rasterization
+  into `__fb_gfx->framebuffer`, a plain malloc'd buffer; the driver's whole
+  job is get a window on screen, blit that buffer into it, and turn OS input
+  events into `fb_hPostEvent()` calls. `gfx_driver_opengl_haiku.cpp` is the
+  separate OpenGL `GFXDRIVER` (see the "OpenGL" bullet under Port status
+  below for its design). `gfx_haiku.c` (plain C, provides
+  `__fb_gfx_drivers_list[]`/`fb_hScreenInfo()`, mirrors `gfx_unix.c`'s role),
+  `fb_gfx_haiku.h`/`fb_gfx_opengl_haiku.h` (the `extern "C"` bridges
+  declaring each driver struct symbol for the C file), `haiku_input.h`
+  (keyboard-scancode/mouse-button mapping helpers shared by both drivers —
+  the only code actually shared between them; extern "C" functions have
+  plain, unmangled linkage regardless of any enclosing C++ namespace, so the
+  two drivers' otherwise-identically-named `driver_*` hook functions can't
+  coexist in the same static lib without one side renaming its own — the
+  OpenGL driver's are all prefixed `gl_driver_*`).
   Design: a `BApplication`+`BWindow` pair runs on its own `pthread` (spawned
   via raw `pthread_create`, matching precedent in the X11/fbdev/win32
   drivers) since `BApplication::Run()` blocks pumping messages and FB
@@ -323,6 +336,94 @@ have nothing to do with the actual test content.
     thread and window-event callbacks need one consistent acquisition order,
     or a dedicated per-resource lock, checked explicitly, not just "it
     rendered right and the process exited in my simple test."
+- **OpenGL** — `src/gfxlib2/haiku/gfx_driver_opengl_haiku.cpp`, a *separate*
+  `GFXDRIVER` (`fb_gfxDriverHaikuOpenGL`) from the plain one, registered
+  after it in `gfx_haiku.c`'s `__fb_gfx_drivers_list[]` (the plain driver
+  already rejects `DRIVER_OPENGL` in its `driver_init()`, so a `GFX_OPENGL`
+  `ScreenRes` request falls through to this one, matching how
+  `src/gfxlib2/unix/gfx_driver_x11.c`/`gfx_driver_opengl_x11.c` split the
+  same way). Built against Haiku's OpenGL Kit (`BGLView`, `<opengl/
+  GLView.h>`), **not** GLX/X11 — `-lGL` is now linked unconditionally
+  alongside `-lbe -lstdc++` for any gfx-using Haiku program (`fbc.bas`);
+  `-DDISABLE_OPENGL` is no longer set for Haiku in the makefile. A small
+  shared header, `haiku_input.h`, holds the keyboard-scancode/mouse-button
+  mapping helpers both drivers use (the only code shared between them —
+  window/app/view lifecycle is intentionally separate, see below).
+  gfxlib2's OpenGL support (`gfx_opengl.c`) has two independent modes,
+  selected via `ScreenControl(SET_GL_2D_MODE, ...)` *before* `ScreenRes`:
+  `OGL_2D_NONE` (the default: the FB program does real OpenGL rendering
+  itself, e.g. via `inc/GL/gl.bi`, and calls `Flip` to swap buffers) and
+  `OGL_2D_MANUAL_SYNC`/`OGL_2D_AUTO_SYNC` (the FB program keeps using
+  ordinary `LINE`/`CIRCLE`/`PSET`/etc, and gfxlib2 core uploads
+  `__fb_gfx->framebuffer` as a texture and draws a fullscreen quad —
+  `MANUAL_SYNC` only on explicit `Flip`, `AUTO_SYNC` automatically after
+  every drawing primitive). All three modes verified end-to-end on real
+  hardware (Mesa's software `llvmpipe` renderer, confirmed via the
+  `GalliumContext: ... llvmpipe` line every GL program prints on first
+  context creation — this box has no hardware-accelerated GL): a 2D
+  auto-sync test (rectangles + a circle via `LINE`/`CIRCLE`) rendered
+  correctly and closed cleanly; a manual-sync animation (20 `Flip` calls)
+  completed cleanly; a raw-primitives test (`glClear` + a `glBegin`
+  triangle with per-vertex colors, linked straight against `-lGL`, no
+  `ScreenControl` call at all) rendered a correctly gradient-shaded
+  triangle. `GL_SCALE` (supersampling) isn't supported — `__fb_gl_params
+  .scale` is left at its default of 1, window is always created at exactly
+  the requested `w`×`h`.
+  - **No BBitmap, no `Draw()` override, no framebuffer mutex** — a deliberate
+    design difference from the plain driver, not an oversight. GL content
+    lives entirely in the `BGLView`'s own front buffer, touched only from
+    `gl_driver_unlock()`/`gl_driver_flip()`, both always called on the FB
+    program's own thread (gfxlib2 core already serializes driver lock/unlock
+    calls via `FB_GRAPHICS_LOCK`, `gfx_access.c`) — there's no second thread
+    reading GL-drawn content the way the plain driver's window-looper thread
+    reads the `BBitmap` in `Draw()`. This sidesteps that whole class of bug
+    entirely rather than re-solving it; a `mouse_mutex` is still needed for
+    the same reason as the plain driver (mouse callbacks run on the window's
+    own looper thread, implicitly holding the `BWindow` lock).
+  - **A real, non-obvious bug found via an actual test, not theory**: a
+    raw-GL test program (`glClear`+`glBegin` triangle, no gfxlib2 2D calls
+    at all) initially rendered a **solid black window** — no triangle, not
+    even the clear color. Root cause: unlike GLX's `MakeCurrent` (a
+    persistent per-thread binding that survives until explicitly released),
+    `BGLView`'s context is only current for the calling thread **while
+    `LockGL()` is held** — `gl_driver_init()` was calling `LockGL()`/
+    `UnlockGL()` as a transient bracket around its own setup calls
+    (`fb_hGL_Init()`/`fb_hGL_ScreenCreate()`), same as every other GL call
+    in the file, so by the time `driver_init()` returned and the FB
+    program's own (directly-linked, not routed through this driver at all)
+    `glClear`/`glBegin` calls ran, there was no current context for them to
+    affect. Fixed by having `gl_driver_init()` call `LockGL()` once and
+    **deliberately never call the matching `UnlockGL()`** before returning,
+    keeping the context current for the calling thread (the FB program's own
+    thread) for the program's entire lifetime; `gl_driver_exit()` releases
+    it. This is safe with `gl_driver_unlock()`/`gl_driver_flip()`'s own
+    `LockGL()`/`UnlockGL()` brackets on top of that persistent hold because
+    `BLocker` (what `LockGL()` wraps) is recursive for the owning thread.
+    After the fix, the same test rendered a correctly per-vertex-shaded
+    triangle. This is the clearest example yet in this port of the general
+    lesson from the plain driver's deadlock: an OS's async/threading
+    primitives (`BLocker`-based `LockGL()` here, `BWindow`'s lock there)
+    often have real, non-obvious semantics that only surface by actually
+    running code, not by pattern-matching against how the analogous GLX/X11
+    upstream driver does it.
+  - **Symbol collision across the two Haiku driver files**: an anonymous
+    C++ namespace does **not** give `extern "C"` functions internal
+    linkage/uniqueness — `extern "C"` always produces a plain, unmangled,
+    externally-visible symbol, regardless of any enclosing namespace. Both
+    driver files initially defined identically-named `extern "C"` functions
+    (`driver_init`, `driver_exit`, `driver_lock`, etc., each only referenced
+    via its own file's `GFXDRIVER` struct, never called by name from
+    elsewhere), which linked fine individually but failed with "multiple
+    definition of `driver_init`" etc. the moment both `.o` files landed in
+    the same `libfbgfx.a`. Fixed by prefixing every one of the OpenGL
+    driver's `extern "C"` driver-hook functions with `gl_` (`gl_driver_init`,
+    `gl_driver_exit`, ...) — `fb_hGL_GetProcAddress` didn't need renaming, it
+    was already uniquely named and only ever defined once across the whole
+    gfxlib2 build.
+  - Regression-verified after landing: full `log-tests` (zero failures, all
+    4 dialects) and `unit-tests` (1,154,483/1,154,485, the same pre-existing
+    benign libm-precision count) both re-run against a full self-hosted
+    rebuild including this driver, no new failures.
 - **Packaging**: `contrib/haiku/fbc-1.20.0.recipe`, a haikuporter recipe.
   **The full pipeline is now verified end-to-end, not just the underlying
   `make` commands**: built a real local tarball, ran actual `haikuporter`
@@ -410,8 +511,6 @@ have nothing to do with the actual test content.
   `<WindowScreen.h>`, the fullscreen/game API, and wasn't confirmed safe to
   call from a plain windowed `BView`; left unimplemented rather than
   guessed at.
-- **No OpenGL** — the only entry left `NULL` in the `GFXDRIVER` struct by
-  choice; not planned.
 - `set_window_pos`, `wait_vsync`, and `fetch_modes` are all implemented.
   `ScreenControl(SET_WINDOW_POS, x, y)`/`GET_WINDOW_POS` work via
   `BWindow::MoveTo()`/`Frame()`, verified by moving a window and confirming

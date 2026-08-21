@@ -4373,8 +4373,12 @@ private sub hAddDefaultLibs( )
 			'' Native BeAPI driver (src/gfxlib2/haiku/gfx_driver_haiku.cpp),
 			'' not X11 -- needs libbe and libstdc++ (the driver is C++,
 			'' BApplication/BWindow have no C bindings), not the X11 libs.
+			'' libGL is for the OpenGL driver (gfx_driver_opengl_haiku.cpp,
+			'' BGLView-based, not GLX) -- linked unconditionally like libbe,
+			'' since either driver may be selected at runtime.
 			fbcAddDefLib( "be" )
 			fbcAddDefLib( "stdc++" )
+			fbcAddDefLib( "GL" )
 
 		case FB_COMPTARGET_ANDROID
 			'' gfxlib2 has no Android driver -- out of scope.

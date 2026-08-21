@@ -1,8 +1,14 @@
 #include "../fb_gfx.h"
 #include "fb_gfx_haiku.h"
+#ifndef DISABLE_OPENGL
+#include "fb_gfx_opengl_haiku.h"
+#endif
 
 const GFXDRIVER *__fb_gfx_drivers_list[] = {
 	&fb_gfxDriverHaiku,
+#ifndef DISABLE_OPENGL
+	&fb_gfxDriverHaikuOpenGL,
+#endif
 	NULL
 };
 
