@@ -11,12 +11,10 @@
  * makefile) linked against libbe/libstdc++, unlike the rest of gfxlib2.
  *
  * Scope: 32bpp truecolor and 8bpp indexed/palette SCREEN modes, no
- * fullscreen/multi-monitor handling, and SetMouse() can show/hide the
- * cursor and track clip state but can't reposition the system cursor. This
- * driver explicitly rejects DRIVER_OPENGL (see driver_init() below) --
- * OpenGL support is a separate driver, gfx_driver_opengl_haiku.cpp, which
- * gfx_haiku.c tries first for GFX_OPENGL requests. See CLAUDE.md for the
- * full list of known gaps.
+ * fullscreen/multi-monitor handling. This driver explicitly rejects
+ * DRIVER_OPENGL (see driver_init() below) -- OpenGL support is a separate
+ * driver, gfx_driver_opengl_haiku.cpp, which gfx_haiku.c tries first for
+ * GFX_OPENGL requests. See CLAUDE.md for the full list of known gaps.
  */
 
 #include <Application.h>
@@ -27,6 +25,7 @@
 #include <Screen.h>
 #include <OS.h>
 #include <InterfaceDefs.h>
+#include <os/game/WindowScreen.h>  /* set_mouse_position() -- see driver_set_mouse() */
 
 extern "C" {
 #include "../fb_gfx.h"
@@ -521,17 +520,27 @@ extern "C" int driver_get_mouse(int *x, int *y, int *z, int *buttons, int *clip)
 
 extern "C" void driver_set_mouse(int x, int y, int cursor, int clip)
 {
-	/* Repositioning the system cursor isn't implemented yet (Haiku's
-	 * set_mouse_position() lives in <WindowScreen.h>, the fullscreen/game
-	 * API, and isn't meant for a plain windowed BView -- see CLAUDE.md).
-	 * Show/hide and clip-state tracking both work. */
-	(void)x; (void)y;
-
 	if (g_state.app != NULL) {
 		if (cursor == 0)
 			g_state.app->HideCursor();
 		else if (cursor > 0)
 			g_state.app->ShowCursor();
+	}
+
+	/* set_mouse_position() (libgame.so, <os/game/WindowScreen.h>) takes
+	 * absolute screen coordinates, but per fb_gfx.h's GFXDRIVER contract
+	 * x/y here are relative to the graphics drawing area -- convert via
+	 * the view, which requires the window to be locked. Confirmed working
+	 * from a plain windowed BView (not just BWindowScreen/fullscreen, which
+	 * is the only usage the Haiku docs actually show): a standalone test
+	 * program linked only against -lgame successfully moved the system
+	 * cursor with no window at all, and wiring it in here moves the cursor
+	 * over this driver's own window correctly, verified via GetMouse()
+	 * reading back the new position and a screenshot. */
+	if (x >= 0 && y >= 0 && g_state.window != NULL && g_state.window->Lock()) {
+		BPoint screenPt = g_state.window->View()->ConvertToScreen(BPoint(x, y));
+		g_state.window->Unlock();
+		set_mouse_position((int32)screenPt.x, (int32)screenPt.y);
 	}
 
 	if (clip == 0 || clip > 0) {

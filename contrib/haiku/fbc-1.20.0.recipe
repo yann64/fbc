@@ -8,11 +8,10 @@ Full console features (COLOR/LOCATE/INKEY$/etc., linked against Haiku's \
 ncurses6 package) and ThreadCall (linked against Haiku's libffi) both work. \
 SCREEN-mode graphics (gfxlib2) uses a native Haiku (BApplication/BWindow) \
 driver: 32bpp truecolor and 8bpp indexed/palette SCREEN modes, keyboard \
-(including F1-F12), mouse (position/buttons/wheel, show/hide cursor), \
-window positioning, and ScreenSync/SCREENLIST all work. A separate driver \
-against Haiku's OpenGL Kit supports both raw OpenGL rendering and \
-gfxlib2's 2D-drawing-via-GL-texture modes. Repositioning the system \
-cursor is not supported."
+(including F1-F12), mouse (position/buttons/wheel, show/hide/reposition \
+cursor), window positioning, and ScreenSync/SCREENLIST all work. A \
+separate driver against Haiku's OpenGL Kit supports both raw OpenGL \
+rendering and gfxlib2's 2D-drawing-via-GL-texture modes."
 HOMEPAGE="https://freebasic.net/"
 COPYRIGHT="2004-2025 The FreeBASIC development team"
 LICENSE="GNU GPL v2"

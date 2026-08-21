@@ -56,6 +56,7 @@
 #include <Screen.h>
 #include <OS.h>
 #include <InterfaceDefs.h>
+#include <os/game/WindowScreen.h>  /* set_mouse_position() -- see gl_driver_set_mouse() */
 
 extern "C" {
 #include "../fb_gfx.h"
@@ -492,13 +493,19 @@ extern "C" int gl_driver_get_mouse(int *x, int *y, int *z, int *buttons, int *cl
 
 extern "C" void gl_driver_set_mouse(int x, int y, int cursor, int clip)
 {
-	(void)x; (void)y;
-
 	if (g_state.app != NULL) {
 		if (cursor == 0)
 			g_state.app->HideCursor();
 		else if (cursor > 0)
 			g_state.app->ShowCursor();
+	}
+
+	/* See the plain driver's driver_set_mouse() for the full explanation --
+	 * same approach, same View()->ConvertToScreen() + set_mouse_position(). */
+	if (x >= 0 && y >= 0 && g_state.window != NULL && g_state.window->Lock()) {
+		BPoint screenPt = g_state.window->View()->ConvertToScreen(BPoint(x, y));
+		g_state.window->Unlock();
+		set_mouse_position((int32)screenPt.x, (int32)screenPt.y);
 	}
 
 	if (clip == 0 || clip > 0) {

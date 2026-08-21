@@ -4375,10 +4375,14 @@ private sub hAddDefaultLibs( )
 			'' BApplication/BWindow have no C bindings), not the X11 libs.
 			'' libGL is for the OpenGL driver (gfx_driver_opengl_haiku.cpp,
 			'' BGLView-based, not GLX) -- linked unconditionally like libbe,
-			'' since either driver may be selected at runtime.
+			'' since either driver may be selected at runtime. libgame is
+			'' for set_mouse_position() (SetMouse cursor repositioning,
+			'' both drivers' driver_set_mouse()) -- part of the base Haiku
+			'' package, not a separate port, same as libbe/libGL.
 			fbcAddDefLib( "be" )
 			fbcAddDefLib( "stdc++" )
 			fbcAddDefLib( "GL" )
+			fbcAddDefLib( "game" )
 
 		case FB_COMPTARGET_ANDROID
 			'' gfxlib2 has no Android driver -- out of scope.

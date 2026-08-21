@@ -505,12 +505,6 @@ have nothing to do with the actual test content.
 
 ### Known gaps / deliberately out of scope
 
-- **`SetMouse` can't reposition the system cursor** — only show/hide
-  (`BApplication::ShowCursor()`/`HideCursor()`, both real) and clip-state
-  tracking are implemented. Haiku's `set_mouse_position()` lives in
-  `<WindowScreen.h>`, the fullscreen/game API, and wasn't confirmed safe to
-  call from a plain windowed `BView`; left unimplemented rather than
-  guessed at.
 - `set_window_pos`, `wait_vsync`, and `fetch_modes` are all implemented.
   `ScreenControl(SET_WINDOW_POS, x, y)`/`GET_WINDOW_POS` work via
   `BWindow::MoveTo()`/`Frame()`, verified by moving a window and confirming
@@ -558,6 +552,28 @@ have nothing to do with the actual test content.
 
 ### Confirmed since the initial port (no longer open questions)
 
+- **`SetMouse` can now reposition the system cursor, in both gfx drivers.**
+  The earlier limitation was that Haiku's `set_mouse_position()` (in
+  `<os/game/WindowScreen.h>`, exported from `libgame.so` — **not**
+  `libbe.so`, confirmed via `nm -D`) is documented as part of the
+  fullscreen/game API (`BWindowScreen`), and wasn't confirmed safe to call
+  from a plain windowed `BView`. Resolved in two steps: first, a standalone
+  helper program (`moveit.cpp`, no window at all, just `main()` calling
+  `set_mouse_position()` in a loop, built while diagnosing the mouse/draw
+  lock-order-inversion deadlock — see above) proved the function works
+  fine outside a `BWindowScreen` context. Second, wired it into both
+  drivers' `driver_set_mouse()`/`gl_driver_set_mouse()`: `set_mouse
+  _position()` takes *absolute* screen coordinates, but the `GFXDRIVER`
+  contract's `x`/`y` are relative to the graphics drawing area (per
+  `fb_gfx.h`), so the driver converts via `BView::ConvertToScreen()`
+  (which needs the window locked) before calling it. Verified end-to-end
+  with `SetMouse`/`GetMouse` round-trip tests in both drivers: moved the
+  cursor to two different window-relative positions, and the driver's own
+  mouse-tracking (updated from the real `MouseMoved` event the OS
+  generates in response) read back the exact same coordinates both times,
+  in both the plain and OpenGL drivers. `-lgame` added to Haiku's default
+  gfx link libs (`fbc.bas`) — part of the base `haiku` package already, not
+  a separate port, same as `-lbe`/`-lGL`.
 - **ABI struct-passing/return conventions, empirically verified against
   real Haiku-gcc-compiled C code** (not just inferred from the closest BSD
   target anymore). Built a dedicated test battery (`abi_c.c` + `abi_test
