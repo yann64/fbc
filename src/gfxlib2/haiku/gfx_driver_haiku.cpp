@@ -10,7 +10,7 @@
  * hence this is a .cpp file (see the LIBFBGFX_CXX bits in the top-level
  * makefile) linked against libbe/libstdc++, unlike the rest of gfxlib2.
  *
- * v1 scope: 32bpp truecolor only (no palette/indexed-mode support), no
+ * Scope: 32bpp truecolor and 8bpp indexed/palette SCREEN modes, no
  * fullscreen/multi-monitor handling, no OpenGL, and SetMouse() can show/hide
  * the cursor and track clip state but can't reposition the system cursor.
  * See CLAUDE.md for the full list of known gaps.
@@ -45,8 +45,15 @@ struct HaikuDriverState {
 	FBHaikuWindow *window;
 	BBitmap *bitmap;
 	FBMUTEX *mutex;
-	int w, h;
+	int w, h, depth;
 	bool inited;
+	/* NULL for depth==32 (the direct-memcpy fast path in driver_unlock() is
+	 * used instead); for indexed depths, a ready-made gfxlib2 core blitter
+	 * (see fb_hGetBlitter()/gfx_blitter.c) that converts __fb_gfx->framebuffer
+	 * (indexed pixels) to 32bpp using __fb_gfx->device_palette, which the
+	 * core already maintains -- the driver doesn't need its own palette
+	 * storage at all, just to report success from driver_set_palette(). */
+	BLITTER *blitter;
 	/* Set by driver_exit() before it calls window->Quit(). BWindow::Quit()
 	 * called from another thread posts B_QUIT_REQUESTED and goes through
 	 * the QuitRequested() hook just like a user clicking the close box
@@ -319,13 +326,28 @@ extern "C" int driver_init(char *title, int w, int h, int depth, int refresh_rat
 	if (flags & DRIVER_OPENGL)
 		return -1;
 
-	/* v1: truecolor only -- no palette/indexed-mode emulation yet. */
-	if (depth != 32)
+	/* 8bpp indexed and 32bpp truecolor only -- 15/16/24bpp aren't handled
+	 * (no BAS program-visible way to request them via ScreenRes anyway). */
+	if (depth != 32 && depth != 8)
 		return -1;
 
 	memset(&g_state, 0, sizeof(g_state));
 	g_state.w = w;
 	g_state.h = h;
+	g_state.depth = depth;
+	if (depth != 32) {
+		/* is_rgb=TRUE (the straight-copy blitter variant, fb_hBlit8to32RGB)
+		 * confirmed empirically on a real Haiku box: a 4-color-band test
+		 * with is_rgb=FALSE swapped red and blue (band 1 came out blue
+		 * instead of red, band 3 red instead of blue, band 4 -- yellow --
+		 * came out cyan); is_rgb=TRUE renders all four correctly. So
+		 * __fb_gfx->device_palette's r | g<<8 | b<<16 packing already
+		 * matches B_RGB32's needed byte order directly, same as the 32bpp
+		 * truecolor path (which also needs no swap, just a plain memcpy). */
+		g_state.blitter = fb_hGetBlitter(32, TRUE);
+		if (g_state.blitter == NULL)
+			return -1;
+	}
 	g_state.mutex = fb_MutexCreate();
 	g_state.ready_sem = create_sem(0, "fbgfx haiku ready");
 	if (g_state.ready_sem < 0)
@@ -383,14 +405,25 @@ extern "C" void driver_unlock(void)
 {
 	if (g_state.bitmap != NULL && __fb_gfx != NULL && __fb_gfx->framebuffer != NULL) {
 		if (g_state.window->Lock()) {
-			int copy_pitch = MIN(g_state.bitmap->BytesPerRow(), __fb_gfx->pitch);
 			unsigned char *dst = (unsigned char *)g_state.bitmap->Bits();
-			unsigned char *src = __fb_gfx->framebuffer;
-			for (int y = 0; y < g_state.h; y++) {
-				memcpy(dst, src, copy_pitch);
-				dst += g_state.bitmap->BytesPerRow();
-				src += __fb_gfx->pitch;
+			int dst_pitch = g_state.bitmap->BytesPerRow();
+
+			if (g_state.depth == 32) {
+				int copy_pitch = MIN(dst_pitch, __fb_gfx->pitch);
+				unsigned char *src = __fb_gfx->framebuffer;
+				for (int y = 0; y < g_state.h; y++) {
+					memcpy(dst, src, copy_pitch);
+					dst += dst_pitch;
+					src += __fb_gfx->pitch;
+				}
+			} else if (g_state.blitter != NULL) {
+				/* Indexed depths: converts __fb_gfx->framebuffer (index
+				 * bytes) to 32bpp via __fb_gfx->device_palette, honoring
+				 * __fb_gfx->dirty per-scanline like every other gfxlib2
+				 * driver using this same core helper. */
+				g_state.blitter(dst, dst_pitch);
 			}
+
 			g_state.window->View()->Invalidate();
 			g_state.window->Unlock();
 		}
@@ -401,7 +434,9 @@ extern "C" void driver_unlock(void)
 
 extern "C" void driver_set_palette(int index, int r, int g, int b)
 {
-	/* No indexed-mode support in v1 -- see driver_init's depth check. */
+	/* Nothing to do: __fb_gfx->device_palette (which the blitter in
+	 * driver_unlock() actually reads) is already maintained by gfxlib2's
+	 * own core, in gfx_palette.c, independently of this callback. */
 	(void)index; (void)r; (void)g; (void)b;
 }
 

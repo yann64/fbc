@@ -56,8 +56,8 @@ components:
   from-scratch native windowed driver" is win32's GDI driver, structurally,
   not code-reusably). Since BeAPI has no C bindings, this driver is **C++**
   (`gfx_driver_haiku.cpp`), the only `.cpp` anywhere in gfxlib2/rtlib — see
-  "gfxlib2 driver" below for the build-system and design details. v1 scope:
-  32bpp truecolor only, keyboard input, no mouse yet.
+  "gfxlib2 driver" below for the build-system and design details. Scope:
+  32bpp truecolor and 8bpp indexed/palette SCREEN modes, keyboard, mouse.
 
 Supporting trees:
 - **`inc/`** — FreeBASIC header (`.bi`) files: stdlib-style (`crt/`,
@@ -273,6 +273,22 @@ have nothing to do with the actual test content.
     *separate* SSH command, not just eyeballing a screenshot) that the
     process actually exited — a screenshot alone would have shown a normal
     -looking window and missed this entirely.
+  - **8bpp indexed/palette `SCREEN` modes work too** (e.g. QB-style
+    `SCREEN 13`-equivalent via `ScreenRes ..., 8`), turned out to need far
+    less code than expected: `__fb_gfx->device_palette[256]` (packed
+    `r | g<<8 | b<<16`) is already maintained by gfxlib2's own core
+    (`gfx_palette.c`) independently of the driver, so `driver_set_palette()`
+    stays a no-op, and `fb_hGetBlitter(32, is_rgb)` (`gfx_blitter.c`) hands
+    back a ready-made, dirty-scanline-aware conversion function — no
+    driver-side palette storage or per-pixel loop needed, just call it from
+    `driver_unlock()` instead of the 32bpp path's direct `memcpy`. The
+    `is_rgb` flag needed empirical, not theoretical, determination: a
+    4-color-band test compiled and run with `is_rgb=FALSE` swapped red and
+    blue (confirmed by screenshot — band 1 rendered blue instead of red,
+    band 4, yellow, rendered cyan); `is_rgb=TRUE` renders all four bands
+    correctly, meaning `device_palette`'s byte order already matches
+    `B_RGB32` directly, consistent with the 32bpp truecolor path also
+    needing no swap.
 - **Packaging**: `contrib/haiku/fbc-1.20.0.recipe`, a haikuporter recipe.
   `BUILD()` runs `make compiler rtlib gfxlib2`; `INSTALL()`'s file layout
   (`make install-compiler install-includes install-rtlib install-gfxlib2
@@ -284,12 +300,6 @@ have nothing to do with the actual test content.
 
 ### Known gaps / deliberately out of scope
 
-- **Indexed/palette color depths** (8bpp `SCREEN` modes, e.g. QB-style
-  `SCREEN 13`) — the driver rejects anything but `depth == 32` in
-  `driver_init()`. `driver_set_palette()` is a no-op stub. Supporting this
-  means either converting indexed→RGB32 per scanline on `unlock()`, or
-  building a `B_CMAP8`-colorspace `BBitmap` and maintaining a real Haiku
-  `BPalette`/color-map alongside gfxlib2's own palette state.
 - **`SetMouse` can't reposition the system cursor** — only show/hide
   (`BApplication::ShowCursor()`/`HideCursor()`, both real) and clip-state
   tracking are implemented. Haiku's `set_mouse_position()` lives in
