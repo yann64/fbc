@@ -7,8 +7,10 @@ runtime library plus thin bindings to popular C libraries.
 Full console features (COLOR/LOCATE/INKEY$/etc., linked against Haiku's \
 ncurses6 package) and ThreadCall (linked against Haiku's libffi) both work. \
 SCREEN-mode graphics (gfxlib2) uses a native Haiku (BApplication/BWindow) \
-driver: 32bpp truecolor SCREEN modes and keyboard input work; indexed/\
-palette color depths, mouse input, and OpenGL are not yet supported."
+driver: 32bpp truecolor and 8bpp indexed/palette SCREEN modes, keyboard \
+(including F1-F12), mouse (position/buttons/wheel, show/hide cursor), \
+window positioning, and ScreenSync/SCREENLIST all work. Repositioning the \
+system cursor and OpenGL are not supported."
 HOMEPAGE="https://freebasic.net/"
 COPYRIGHT="2004-2025 The FreeBASIC development team"
 LICENSE="GNU GPL v2"
