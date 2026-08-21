@@ -18,7 +18,7 @@ LICENSE="GNU GPL v2"
 REVISION="1"
 
 SOURCE_URI="https://github.com/yann64/fbc/archive/refs/tags/haiku-$portVersion.tar.gz"
-CHECKSUM_SHA256="6989aaf042a3ddc8b9bce88987b77ceaf3459fe412a187e2e12dd1499d199938"
+CHECKSUM_SHA256="69adafb50bd9c0395afcb1102fb1498753df6f6a3cde09c99360db4fce9a0022"
 SOURCE_DIR="fbc-haiku-$portVersion"
 
 ARCHITECTURES="x86_64"
