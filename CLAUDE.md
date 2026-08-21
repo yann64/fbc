@@ -531,13 +531,65 @@ have nothing to do with the actual test content.
   `fetch_modes` both guard on it now (`wait_vsync` doesn't hit this in
   practice, since it's only ever called after a screen already exists, but
   guards anyway since the cost of checking is negligible).
-- The exact ABI flags in `fb.bas`'s `targetinfo()` row for Haiku
-  (`FB_TARGETOPT_*` — struct-passing/return conventions) are still only
-  inferred from the closest BSD-family target, not independently verified
-  against Haiku's actual System V x86_64 ABI implementation.
+- **`ir-gas64.bas`'s `ctx.systemv` is `FALSE` for Haiku** (`_emitbegin()`
+  hardcodes it `TRUE` only for `FB_COMPTARGET_LINUX`/`FB_COMPTARGET_FREEBSD`,
+  matching a `!!!TODO!!! add to target options` comment already in
+  `symb-struct.bas` next to the same hardcoded pair). On paper this selects
+  a *different* code path for scalar-argument register assignment
+  (`param_analyze()` in `ir-gas64.bas`: an independent-per-class SysV
+  counter — up to 6 integer args in `RDI`/`RSI`/`RDX`/`RCX`/`R8`/`R9`, up to
+  8 float args in `XMM0`-`XMM7` — vs. a shared-positional-counter Windows
+  x64-style scheme when `ctx.systemv` is false) and struct-parameter
+  classification (the same Linux/FreeBSD-only pair also gates
+  `hGetReturnTypeGas64SystemV()` for struct *returns*, in `symb-struct.bas`).
+  **Despite that, no incorrect result was found** in a dedicated real-
+  hardware test battery built specifically to expose exactly this kind of
+  divergence — see "Confirmed since the initial port" below. This is now a
+  documented, low-priority puzzle rather than an open verification gap: the
+  flag's theoretical effect doesn't reproduce as an observed bug, so either
+  a separate/correct code path is actually used for genuine
+  `Cdecl`/`Alias`-declared external calls (decoupled from
+  `param_analyze()`), or `ctx.systemv`'s practical effect is narrower than
+  its own code comments suggest. Worth adding `FB_COMPTARGET_HAIKU` to
+  both hardcoded pairs anyway next time this file is touched, purely to
+  remove the discrepancy and match Linux/FreeBSD's already-verified,
+  principled path instead of relying on this empirical result forever — but
+  not urgent given the test results.
 
 ### Confirmed since the initial port (no longer open questions)
 
+- **ABI struct-passing/return conventions, empirically verified against
+  real Haiku-gcc-compiled C code** (not just inferred from the closest BSD
+  target anymore). Built a dedicated test battery (`abi_c.c` + `abi_test
+  .bas`, not checked in — a one-off diagnostic, not part of the port):
+  `Declare Function ... Cdecl Alias` calls from FB into real gcc-compiled C
+  functions, and the reverse (FB `Function ... Cdecl Alias` functions
+  called from C), covering:
+  - Every SysV x86-64 eightbyte return/parameter classification for structs
+    up to 16 bytes — integer-only (`S_R`/`S_RR`), float-only
+    (`S_X`/`S_XX`), and both mixed orderings (`S_RX`/`S_XR`) — plus a
+    20-byte struct forcing the memory-class (hidden-pointer) case.
+  - A struct parameter preceded by 6 leading `Long` arguments (register-slot
+    exhaustion interacting with a struct arg).
+  - 6 interleaved `Double`/`Long` scalar arguments (3 of each) — the
+    specific pattern where SysV's independent per-class register counters
+    and a Windows x64-style shared positional counter would assign
+    *different* registers if fbc used the wrong one.
+  - 10 interleaved `Double`/`Long` scalar arguments (5 of each) — same idea
+    but past the point (4 total args) where a Windows x64-style scheme
+    would start spilling to the stack, while true SysV (caps of 6
+    integer/8 float) would not; the sharpest test for exposing a
+    register-vs-stack misclassification.
+  All of the above passed byte-for-byte correct, in both call directions,
+  on real hardware. See the "Known gaps" entry on `ctx.systemv` above for
+  the one loose thread this raised (a theoretical divergence that didn't
+  reproduce as an actual bug) — everything else about Haiku's `fb.bas`
+  `targetinfo()` row (`FB_TARGETOPT_UNIX | CALLEEPOPSHIDDENPTR |
+  RETURNINREGS | ELF`, no `RETURNINFLTS`/`STACKALIGN16`) is now considered
+  verified rather than inferred. (`STACKALIGN16` was separately confirmed
+  irrelevant to this port by reading the code, not by testing: it's gated
+  to `FB_BACKEND_GAS`, the 32-bit x86 backend only, in
+  `ast-node-call.bas` — this port only targets/tests 64-bit gas64.)
 - **No `-dynamic-linker` override needed, confirmed (not just assumed):**
   `readelf -l` on a real fbc-built Haiku binary shows **no PT_INTERP segment
   at all** — Haiku's ELF loading has no equivalent of Linux's embedded

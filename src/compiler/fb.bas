@@ -234,8 +234,19 @@ dim shared as FBTARGET targetinfo(0 to FB_COMPTARGETS-1) = _
 		    or FB_TARGETOPT_CALLEEPOPSHIDDENPTR _
 		    or FB_TARGETOPT_RETURNINREGS _
 	), _
-	_ '' System V x86_64 ABI, ELF; mirrors dragonfly/netbsd. Unverified on
-	_ '' real hardware yet -- revisit once the Haiku box is reachable.
+	_ '' System V x86_64 ABI, ELF; flags mirror dragonfly/netbsd (RETURNINREGS
+	_ '' but not RETURNINFLTS). Empirically verified on real hardware: a
+	_ '' dedicated test battery of struct-by-value returns and parameters
+	_ '' (every SysV eightbyte classification: integer-only, float-only, and
+	_ '' every mixed combination, both <=16 bytes register-eligible and >16
+	_ '' bytes memory-class) plus interleaved int/float scalar arguments
+	_ '' (including a 10-arg case forcing register-vs-stack spillover
+	_ '' decisions) all round-tripped correctly against real Haiku-gcc-
+	_ '' compiled C functions, in both call directions. See CLAUDE.md's
+	_ '' "Known gaps" section for the one open question this surfaced:
+	_ '' ir-gas64.bas's ctx.systemv is FALSE for Haiku (only TRUE for
+	_ '' Linux/FreeBSD), which on paper should affect this exact kind of
+	_ '' call, but no incorrect result was found in this suite.
 	( _
 		@"haiku", _
 		FB_DATATYPE_ULONG, _

@@ -1530,7 +1530,7 @@ void FBINIT( int64 ISMAIN$1, char* ENTRY$1, int64 MODULE_COUNT$1 )
 	*($16FB_RESTART_FLAGS*)((uint8*)&ENV$ + 1616ll) = *(int64*)((uint8*)&ENV$ + 1616ll) & -6ll;
 	int32 vr$3 = fb_ArrayRedimEx( (struct $7FBARRAYIvE*)&INFILETB$, 296ull, -1, 0, 1ull, 0ll, 15ll );
 	if( (int64)vr$3 == 0ll) goto label$39;
-	void* vr$5 = fb_ErrorThrowAt( 429, (char*)"src/compiler/fb.bas", (void*)0ull, (void*)0ull );
+	void* vr$5 = fb_ErrorThrowAt( 440, (char*)"src/compiler/fb.bas", (void*)0ull, (void*)0ull );
 	goto *vr$5;
 	label$39:;
 	*(int64*)((uint8*)&ENV$ + 1296ll) = 0ll;
@@ -3071,7 +3071,7 @@ void FBCOMPILE( char* INFNAME$1, char* OUTFNAME$1, FBSTRING* PPONLYFILE$1, int64
 	{
 		int32 vr$41 = fb_FileClose( (int32)*(int64*)((uint8*)&ENV$ + 1216ll) );
 		if( (int64)vr$41 == 0ll) goto label$376;
-		void* vr$43 = fb_ErrorThrowAt( 1371, (char*)"src/compiler/fb.bas", (void*)0ull, (void*)0ull );
+		void* vr$43 = fb_ErrorThrowAt( 1382, (char*)"src/compiler/fb.bas", (void*)0ull, (void*)0ull );
 		goto *vr$43;
 		label$376:;
 	}
@@ -3079,7 +3079,7 @@ void FBCOMPILE( char* INFNAME$1, char* OUTFNAME$1, FBSTRING* PPONLYFILE$1, int64
 	label$374:;
 	int32 vr$45 = fb_FileClose( (int32)*(int64*)((uint8*)&ENV$ + 624ll) );
 	if( (int64)vr$45 == 0ll) goto label$377;
-	void* vr$47 = fb_ErrorThrowAt( 1374, (char*)"src/compiler/fb.bas", (void*)0ull, (void*)0ull );
+	void* vr$47 = fb_ErrorThrowAt( 1385, (char*)"src/compiler/fb.bas", (void*)0ull, (void*)0ull );
 	goto *vr$47;
 	label$377:;
 	int64 vr$48 = FBSHOULDCONTINUE(  );
@@ -3441,7 +3441,7 @@ void FBINCLUDEFILE( char* FILENAME$1, int64 ISONCE$1 )
 	LEXPOPCTX(  );
 	int32 vr$115 = fb_FileClose( (int32)*(int64*)((uint8*)&ENV$ + 624ll) );
 	if( (int64)vr$115 == 0ll) goto label$466;
-	void* vr$117 = fb_ErrorThrowAt( 1721, (char*)"src/compiler/fb.bas", (void*)0ull, (void*)0ull );
+	void* vr$117 = fb_ErrorThrowAt( 1732, (char*)"src/compiler/fb.bas", (void*)0ull, (void*)0ull );
 	goto *vr$117;
 	label$466:;
 	*(int64*)((uint8*)&ENV$ + 1296ll) = *(int64*)((uint8*)&ENV$ + 1296ll) + -1ll;
