@@ -11,11 +11,13 @@
  * makefile) linked against libbe/libstdc++, unlike the rest of gfxlib2.
  *
  * v1 scope: 32bpp truecolor only (no palette/indexed-mode support), no
- * mouse support, no fullscreen/multi-monitor handling, no OpenGL. See
- * CLAUDE.md for the full list of known gaps.
+ * fullscreen/multi-monitor handling, no OpenGL, and SetMouse() can show/hide
+ * the cursor and track clip state but can't reposition the system cursor.
+ * See CLAUDE.md for the full list of known gaps.
  */
 
 #include <Application.h>
+#include <AppDefs.h>
 #include <Window.h>
 #include <View.h>
 #include <Bitmap.h>
@@ -33,33 +35,65 @@ extern "C" {
 
 namespace {
 
-class FBHaikuView : public BView {
-public:
-	FBHaikuView(BRect frame, BBitmap *bitmap)
-		: BView(frame, "fbgfx_view", B_FOLLOW_ALL, B_WILL_DRAW),
-		  fBitmap(bitmap)
-	{
-		SetViewColor(B_TRANSPARENT_COLOR);
-	}
+class FBHaikuApp;
+class FBHaikuWindow;
 
-	void Draw(BRect updateRect) override
-	{
-		if (fBitmap != NULL)
-			DrawBitmap(fBitmap, updateRect, updateRect);
-	}
+struct HaikuDriverState {
+	pthread_t app_thread;
+	sem_id ready_sem;
+	FBHaikuApp *app;
+	FBHaikuWindow *window;
+	BBitmap *bitmap;
+	FBMUTEX *mutex;
+	int w, h;
+	bool inited;
+	/* Set by driver_exit() before it calls window->Quit(). BWindow::Quit()
+	 * called from another thread posts B_QUIT_REQUESTED and goes through
+	 * the QuitRequested() hook just like a user clicking the close box
+	 * does -- this flag is how QuitRequested() tells the two apart, so a
+	 * user close click can be left to the FB program's discretion (posts
+	 * EVENT_WINDOW_CLOSE, doesn't actually close) while driver_exit()'s own
+	 * programmatic shutdown still actually closes the window. */
+	bool exiting;
 
-private:
-	BBitmap *fBitmap;
+	/* Mouse state, updated from FBHaikuView's input callbacks (which run on
+	 * the window's own looper thread) and read back synchronously from
+	 * driver_get_mouse() (GFXDRIVER's get_mouse is a poll, not event-based --
+	 * see fb_GfxGetMouse()/gfx_getmouse.c, which calls it directly). */
+	int mouse_x, mouse_y, mouse_z, mouse_buttons;
+	bool mouse_clip;
 };
 
+HaikuDriverState g_state;
+
 /* Best-effort DOS-scancode mapping for the handful of non-printable keys
- * FB programs commonly check for (arrows, editing keys, ESC/ENTER/etc.).
- * Haiku's raw hardware key codes don't correspond to AT scancodes, but the
- * "raw_char" field for these keys carries the stable BeOS B_*_ARROW-style
- * constants regardless of keyboard layout, which is enough to map from.
+ * FB programs commonly check for (arrows, editing keys, ESC/ENTER/etc, and
+ * F1-F12). Haiku's raw hardware key codes don't correspond to AT scancodes:
+ * for most keys, the "raw_char" field carries a stable BeOS B_*_ARROW-style
+ * constant regardless of keyboard layout, which is enough to map from; for
+ * function keys, raw_char is just a generic marker, so the "key" field
+ * (matched against the B_F1_KEY..B_F12_KEY raw hardware codes) plus the
+ * B_FUNCTION_KEY modifiers bit are used instead.
  */
-int32 RawCharToScancode(int32 rawChar)
+int32 KeyToScancode(int32 rawChar, int32 key, int32 modifiers)
 {
+	if (modifiers & B_FUNCTION_KEY) {
+		switch (key) {
+		case B_F1_KEY:  return SC_F1;
+		case B_F2_KEY:  return SC_F2;
+		case B_F3_KEY:  return SC_F3;
+		case B_F4_KEY:  return SC_F4;
+		case B_F5_KEY:  return SC_F5;
+		case B_F6_KEY:  return SC_F6;
+		case B_F7_KEY:  return SC_F7;
+		case B_F8_KEY:  return SC_F8;
+		case B_F9_KEY:  return SC_F9;
+		case B_F10_KEY: return SC_F10;
+		case B_F11_KEY: return SC_F11;
+		case B_F12_KEY: return SC_F12;
+		}
+	}
+
 	switch (rawChar) {
 	case B_ESCAPE: return SC_ESCAPE;
 	case B_BACKSPACE: return SC_BACKSPACE;
@@ -80,6 +114,122 @@ int32 RawCharToScancode(int32 rawChar)
 	return 0;
 }
 
+int HaikuButtonsToFbButtons(int32 haikuButtons)
+{
+	int buttons = 0;
+	if (haikuButtons & B_PRIMARY_MOUSE_BUTTON) buttons |= BUTTON_LEFT;
+	if (haikuButtons & B_SECONDARY_MOUSE_BUTTON) buttons |= BUTTON_RIGHT;
+	if (haikuButtons & B_TERTIARY_MOUSE_BUTTON) buttons |= BUTTON_MIDDLE;
+	return buttons;
+}
+
+class FBHaikuView : public BView {
+public:
+	FBHaikuView(BRect frame, BBitmap *bitmap)
+		: BView(frame, "fbgfx_view", B_FOLLOW_ALL, B_WILL_DRAW),
+		  fBitmap(bitmap)
+	{
+		SetViewColor(B_TRANSPARENT_COLOR);
+	}
+
+	void Draw(BRect updateRect) override
+	{
+		if (fBitmap != NULL)
+			DrawBitmap(fBitmap, updateRect, updateRect);
+	}
+
+	void MouseDown(BPoint where) override
+	{
+		(void)where;
+		PostButtonTransitions(EVENT_MOUSE_BUTTON_PRESS);
+	}
+
+	void MouseUp(BPoint where) override
+	{
+		(void)where;
+		PostButtonTransitions(EVENT_MOUSE_BUTTON_RELEASE);
+	}
+
+	void MouseMoved(BPoint where, uint32 code, const BMessage *dragMessage) override
+	{
+		(void)code; (void)dragMessage;
+		PostMoveEvent(where);
+	}
+
+	void MessageReceived(BMessage *msg) override
+	{
+		if (msg->what == B_MOUSE_WHEEL_CHANGED) {
+			float deltaY = 0;
+			msg->FindFloat("be:wheel_delta_y", &deltaY);
+
+			fb_MutexLock(g_state.mutex);
+			g_state.mouse_z -= (int)deltaY;
+			int z = g_state.mouse_z;
+			fb_MutexUnlock(g_state.mutex);
+
+			EVENT e;
+			memset(&e, 0, sizeof(e));
+			e.type = EVENT_MOUSE_WHEEL;
+			e.z = z;
+			fb_hPostEvent(&e);
+		} else {
+			BView::MessageReceived(msg);
+		}
+	}
+
+private:
+	/* Compares the new button bitmask (from the current message) against
+	 * the previously-tracked one and posts one EVENT_MOUSE_BUTTON_PRESS/
+	 * RELEASE per button that actually changed state -- matches the X11
+	 * driver's convention of a single .button per event, not the full mask.
+	 */
+	void PostButtonTransitions(int type)
+	{
+		int32 haikuButtons = 0;
+		if (Window() != NULL && Window()->CurrentMessage() != NULL)
+			Window()->CurrentMessage()->FindInt32("buttons", &haikuButtons);
+		int newButtons = HaikuButtonsToFbButtons(haikuButtons);
+
+		fb_MutexLock(g_state.mutex);
+		int oldButtons = g_state.mouse_buttons;
+		g_state.mouse_buttons = newButtons;
+		fb_MutexUnlock(g_state.mutex);
+
+		int changed = oldButtons ^ newButtons;
+		static const int all_buttons[] = { BUTTON_LEFT, BUTTON_RIGHT, BUTTON_MIDDLE };
+		for (size_t i = 0; i < sizeof(all_buttons) / sizeof(all_buttons[0]); i++) {
+			if (changed & all_buttons[i]) {
+				EVENT e;
+				memset(&e, 0, sizeof(e));
+				e.type = type;
+				e.button = all_buttons[i];
+				fb_hPostEvent(&e);
+			}
+		}
+	}
+
+	void PostMoveEvent(BPoint where)
+	{
+		fb_MutexLock(g_state.mutex);
+		int dx = (int)where.x - g_state.mouse_x;
+		int dy = (int)where.y - g_state.mouse_y;
+		g_state.mouse_x = (int)where.x;
+		g_state.mouse_y = (int)where.y;
+		fb_MutexUnlock(g_state.mutex);
+
+		EVENT e;
+		memset(&e, 0, sizeof(e));
+		e.type = EVENT_MOUSE_MOVE;
+		e.x = (int)where.x;
+		e.y = (int)where.y;
+		e.dx = dx;
+		e.dy = dy;
+		fb_hPostEvent(&e);
+	}
+
+	BBitmap *fBitmap;
+};
+
 class FBHaikuWindow : public BWindow {
 public:
 	FBHaikuWindow(BRect frame, const char *title, BBitmap *bitmap)
@@ -92,6 +242,9 @@ public:
 
 	bool QuitRequested() override
 	{
+		if (g_state.exiting)
+			return true; /* driver_exit()'s own programmatic shutdown */
+
 		EVENT e;
 		memset(&e, 0, sizeof(e));
 		e.type = EVENT_WINDOW_CLOSE;
@@ -107,15 +260,17 @@ public:
 		case B_KEY_DOWN:
 		case B_KEY_UP:
 		{
-			int32 rawChar = 0;
+			int32 rawChar = 0, key = 0, modifiers = 0;
 			msg->FindInt32("raw_char", &rawChar);
+			msg->FindInt32("key", &key);
+			msg->FindInt32("modifiers", &modifiers);
 			const char *bytes = NULL;
 			msg->FindString("bytes", &bytes);
 
 			EVENT e;
 			memset(&e, 0, sizeof(e));
 			e.type = (msg->what == B_KEY_DOWN) ? EVENT_KEY_PRESS : EVENT_KEY_RELEASE;
-			e.scancode = RawCharToScancode(rawChar);
+			e.scancode = KeyToScancode(rawChar, key, modifiers);
 			e.ascii = (bytes != NULL && bytes[0] != '\0' && (unsigned char)bytes[0] < 0x80)
 				? (unsigned char)bytes[0] : 0;
 			fb_hPostEvent(&e);
@@ -136,19 +291,6 @@ class FBHaikuApp : public BApplication {
 public:
 	FBHaikuApp() : BApplication("application/x-vnd.fbc-gfx") {}
 };
-
-struct HaikuDriverState {
-	pthread_t app_thread;
-	sem_id ready_sem;
-	FBHaikuApp *app;
-	FBHaikuWindow *window;
-	BBitmap *bitmap;
-	FBMUTEX *mutex;
-	int w, h;
-	bool inited;
-};
-
-HaikuDriverState g_state;
 
 void *AppThreadEntry(void *)
 {
@@ -207,9 +349,23 @@ extern "C" void driver_exit(void)
 	if (!g_state.inited)
 		return;
 
-	if (g_state.window != NULL && g_state.window->Lock()) {
+	/* Must be set before Quit() is called: BWindow::Quit() from a thread
+	 * other than the window's own looper thread (this always is one, see
+	 * HaikuDriverState::exiting's comment) posts B_QUIT_REQUESTED
+	 * asynchronously and returns immediately, so QuitRequested() only runs
+	 * later, on the app thread -- but always after this flag is visibly
+	 * set, since nothing else touches it concurrently. */
+	g_state.exiting = true;
+
+	if (g_state.window != NULL && g_state.window->Lock())
 		g_state.window->Quit();
-	}
+
+	/* BApplication::Run() doesn't return just because the last window
+	 * closed -- it keeps pumping messages until the application itself is
+	 * asked to quit. */
+	if (g_state.app != NULL)
+		g_state.app->PostMessage(B_QUIT_REQUESTED);
+
 	pthread_join(g_state.app_thread, NULL);
 
 	if (g_state.mutex != NULL)
@@ -257,6 +413,40 @@ extern "C" void driver_set_window_title(char *title)
 	}
 }
 
+extern "C" int driver_get_mouse(int *x, int *y, int *z, int *buttons, int *clip)
+{
+	fb_MutexLock(g_state.mutex);
+	*x = g_state.mouse_x;
+	*y = g_state.mouse_y;
+	*z = g_state.mouse_z;
+	*buttons = g_state.mouse_buttons;
+	*clip = g_state.mouse_clip ? 1 : 0;
+	fb_MutexUnlock(g_state.mutex);
+	return 0;
+}
+
+extern "C" void driver_set_mouse(int x, int y, int cursor, int clip)
+{
+	/* Repositioning the system cursor isn't implemented yet (Haiku's
+	 * set_mouse_position() lives in <WindowScreen.h>, the fullscreen/game
+	 * API, and isn't meant for a plain windowed BView -- see CLAUDE.md).
+	 * Show/hide and clip-state tracking both work. */
+	(void)x; (void)y;
+
+	if (g_state.app != NULL) {
+		if (cursor == 0)
+			g_state.app->HideCursor();
+		else if (cursor > 0)
+			g_state.app->ShowCursor();
+	}
+
+	if (clip == 0 || clip > 0) {
+		fb_MutexLock(g_state.mutex);
+		g_state.mouse_clip = (clip != 0);
+		fb_MutexUnlock(g_state.mutex);
+	}
+}
+
 } /* anonymous namespace */
 
 extern "C" const GFXDRIVER fb_gfxDriverHaiku =
@@ -268,8 +458,8 @@ extern "C" const GFXDRIVER fb_gfxDriverHaiku =
 	driver_unlock,            /* unlock */
 	driver_set_palette,       /* set_palette */
 	NULL,                     /* wait_vsync */
-	NULL,                     /* get_mouse -- not yet implemented, see CLAUDE.md */
-	NULL,                     /* set_mouse */
+	driver_get_mouse,         /* get_mouse */
+	driver_set_mouse,         /* set_mouse */
 	driver_set_window_title,  /* set_window_title */
 	NULL,                     /* set_window_pos */
 	NULL,                     /* fetch_modes */

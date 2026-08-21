@@ -243,34 +243,59 @@ have nothing to do with the actual test content.
   detached over SSH, captured a screenshot with Haiku's `screenshot -s`
   CLI tool, pulled it back, and visually confirmed correct rendering (right
   colors, right shapes, right window title).
+  - **Mouse and function keys**: `FBHaikuView` overrides `MouseDown`/
+    `MouseUp`/`MouseMoved` and handles `B_MOUSE_WHEEL_CHANGED`, tracking
+    position/buttons/wheel in `HaikuDriverState` under the same `FBMUTEX`,
+    read back synchronously by `driver_get_mouse()` (confirmed via
+    `gfx_getmouse.c`: `GetMouse` polls the driver directly, it's not
+    event-queue-based like keyboard input) — button-press/release events
+    post one `fb_hPostEvent` per button that actually changed, mirroring
+    the X11 driver's `.button`-per-event convention (not the full bitmask).
+    F1–F12 map via the key message's `"key"` field against
+    `B_F1_KEY`..`B_F12_KEY` (gated on the `B_FUNCTION_KEY` modifiers bit),
+    since `raw_char` for function keys is just a generic marker, unlike the
+    other special keys.
+  - **A real deadlock was found and fixed here**: `driver_exit()` calling
+    `window->Quit()` from a different thread than the window's own looper
+    (always true — the window runs on the driver's dedicated app thread)
+    routes through `BWindow::QuitRequested()`, same as a user clicking the
+    close box. The close-box handler is deliberately written to return
+    `false` (so a user closing the window doesn't force-exit an FB program
+    that wants to catch `EVENT_WINDOW_CLOSE` and decide for itself) — but
+    that also silently blocked `driver_exit()`'s *own* shutdown, hanging
+    the whole process forever with no window ever appearing. Fixed with an
+    `exiting` flag set before calling `Quit()`, checked first thing in
+    `QuitRequested()`. A second, related issue: `BApplication::Run()`
+    doesn't return just because the last window closed — `driver_exit()`
+    also has to `PostMessage(B_QUIT_REQUESTED)` to the `BApplication`
+    itself, or `pthread_join()` on the app thread hangs too. Caught by
+    running compiled test programs to completion and checking (via a
+    *separate* SSH command, not just eyeballing a screenshot) that the
+    process actually exited — a screenshot alone would have shown a normal
+    -looking window and missed this entirely.
 - **Packaging**: `contrib/haiku/fbc-1.20.0.recipe`, a haikuporter recipe.
-  `BUILD()` runs `make compiler rtlib` (never plain `make`/`gfxlib2`).
-  `INSTALL()`'s file layout (`make install-compiler install-includes
-  install-rtlib prefix=$prefix`) was verified end-to-end on the real box: a
-  `hello.bas` compiled and ran using only the staged install tree, no
-  build-tree paths. **Still needs**: a real `SOURCE_URI`/`CHECKSUM_SHA256`
-  once this fork/branch has a fetchable tagged tarball — haikuporter can't
-  build from an uncommitted local tree.
+  `BUILD()` runs `make compiler rtlib gfxlib2`; `INSTALL()`'s file layout
+  (`make install-compiler install-includes install-rtlib install-gfxlib2
+  prefix=$prefix`) was verified end-to-end on the real box: a `hello.bas`
+  compiled and ran using only the staged install tree, no build-tree paths.
+  **Still needs**: a real `SOURCE_URI`/`CHECKSUM_SHA256` once this
+  fork/branch has a fetchable tagged tarball — haikuporter can't build from
+  an uncommitted local tree.
 
 ### Known gaps / deliberately out of scope
 
-- **gfxlib2 mouse support** — `get_mouse`/`set_mouse` are `NULL` in the
-  driver; `MOUSEX`/`MOUSEY`/`GETMOUSE` don't work yet. Would need
-  `B_MOUSE_DOWN`/`B_MOUSE_UP`/`B_MOUSE_MOVED` handling added to
-  `FBHaikuWindow::MessageReceived` in `gfx_driver_haiku.cpp`, following the
-  same `fb_hPostEvent` pattern already used for keyboard.
-  - **Indexed/palette color depths** (8bpp `SCREEN` modes, e.g. QB-style
+- **Indexed/palette color depths** (8bpp `SCREEN` modes, e.g. QB-style
   `SCREEN 13`) — the driver rejects anything but `depth == 32` in
   `driver_init()`. `driver_set_palette()` is a no-op stub. Supporting this
   means either converting indexed→RGB32 per scanline on `unlock()`, or
   building a `B_CMAP8`-colorspace `BBitmap` and maintaining a real Haiku
   `BPalette`/color-map alongside gfxlib2's own palette state.
-- **Function-key scancodes** — `RawCharToScancode()` in the driver only maps
-  a fixed set of common non-printable keys (arrows, ESC, ENTER, TAB, SPACE,
-  editing keys). F1–F12 aren't mapped: Haiku's raw hardware key codes for
-  function keys need their own lookup (arrive via the message's `"key"`
-  field, tagged with the `B_FUNCTION_KEY` modifier), not derived from
-  `raw_char` the way the other keys are.
+- **`SetMouse` can't reposition the system cursor** — only show/hide
+  (`BApplication::ShowCursor()`/`HideCursor()`, both real) and clip-state
+  tracking are implemented. Haiku's `set_mouse_position()` lives in
+  `<WindowScreen.h>`, the fullscreen/game API, and wasn't confirmed safe to
+  call from a plain windowed `BView`; left unimplemented rather than
+  guessed at.
 - No `fetch_modes`/`wait_vsync`/`set_window_pos`/OpenGL — all `NULL` in the
   `GFXDRIVER` struct; SCREEN always opens a fixed-size window at whatever
   size/position `BWindow::CenterOnScreen()` picks.
@@ -354,3 +379,9 @@ have nothing to do with the actual test content.
   own GUI and blocks), then `scp` the PNG back and open it. Clean up stray
   background processes between attempts (`ps` on Haiku, then `kill -9
   <pid>`; there's no `pkill`).
+- **A correct-looking screenshot is not proof a gfxlib2 program works
+  correctly end-to-end** — the exit-deadlock bug above produced a window
+  that rendered perfectly right up until the process hung forever on exit,
+  invisible in any single screenshot. After a screenshot confirms the
+  visuals, also check (via a separate `ps` call, after the program's
+  expected runtime has elapsed) that the process actually terminated.
