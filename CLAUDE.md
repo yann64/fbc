@@ -306,9 +306,11 @@ have nothing to do with the actual test content.
   `<WindowScreen.h>`, the fullscreen/game API, and wasn't confirmed safe to
   call from a plain windowed `BView`; left unimplemented rather than
   guessed at.
-- No `fetch_modes`/`wait_vsync`/`set_window_pos`/OpenGL — all `NULL` in the
-  `GFXDRIVER` struct; SCREEN always opens a fixed-size window at whatever
-  size/position `BWindow::CenterOnScreen()` picks.
+- No `fetch_modes`/`wait_vsync`/OpenGL — still `NULL` in the `GFXDRIVER`
+  struct. `set_window_pos` (unlike the others) **is** implemented —
+  `ScreenControl(SET_WINDOW_POS, x, y)`/`GET_WINDOW_POS` both work via
+  `BWindow::MoveTo()`/`Frame()`, verified by moving a window and confirming
+  both the reported coordinates and the actual on-screen position.
 - The exact ABI flags in `fb.bas`'s `targetinfo()` row for Haiku
   (`FB_TARGETOPT_*` — struct-passing/return conventions) are still only
   inferred from the closest BSD-family target, not independently verified

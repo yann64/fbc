@@ -448,6 +448,29 @@ extern "C" void driver_set_window_title(char *title)
 	}
 }
 
+extern "C" int driver_set_window_pos(int x, int y)
+{
+	if (g_state.window == NULL || !g_state.window->Lock())
+		return 0;
+
+	/* Matches the win32 driver's convention (see fb_hWin32SetWindowPos):
+	 * moving an axis is skipped when it's the 0x80000000 sentinel; the
+	 * current-position return value is only filled in for a pure query
+	 * (both axes ignored), 0 is returned after an actual move. */
+	if (x != (int)0x80000000 || y != (int)0x80000000) {
+		BPoint origin = g_state.window->Frame().LeftTop();
+		g_state.window->MoveTo(
+			(x == (int)0x80000000) ? origin.x : x,
+			(y == (int)0x80000000) ? origin.y : y);
+		g_state.window->Unlock();
+		return 0;
+	}
+
+	BPoint origin = g_state.window->Frame().LeftTop();
+	g_state.window->Unlock();
+	return ((int)origin.x & 0xFFFF) | ((int)origin.y << 16);
+}
+
 extern "C" int driver_get_mouse(int *x, int *y, int *z, int *buttons, int *clip)
 {
 	fb_MutexLock(g_state.mutex);
@@ -496,7 +519,7 @@ extern "C" const GFXDRIVER fb_gfxDriverHaiku =
 	driver_get_mouse,         /* get_mouse */
 	driver_set_mouse,         /* set_mouse */
 	driver_set_window_title,  /* set_window_title */
-	NULL,                     /* set_window_pos */
+	driver_set_window_pos,    /* set_window_pos */
 	NULL,                     /* fetch_modes */
 	NULL,                     /* flip */
 	NULL,                     /* poll_events -- BWindow's own looper thread pumps events */
