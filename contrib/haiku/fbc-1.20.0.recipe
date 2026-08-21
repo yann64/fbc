@@ -32,6 +32,8 @@ REQUIRES="
 	haiku
 	lib:libffi
 	ncurses6
+	lib:libGL
+	mesa_swpipe
 	"
 
 BUILD_PREREQUIRES="
@@ -40,6 +42,7 @@ BUILD_PREREQUIRES="
 	cmd:make
 	libffi_devel
 	ncurses6_devel
+	devel:libGL
 	"
 
 BUILD_REQUIRES="$BUILD_PREREQUIRES"

@@ -512,6 +512,26 @@ have nothing to do with the actual test content.
     unmodified (no local-file substitution), and it fetched over the network,
     built, and packaged successfully — installed and smoke-tested via
     `pkgman` same as every earlier local-tarball test.
+  - **The recipe was missing GL build/runtime dependencies**, only caught
+    once the OpenGL driver work landed and the package was rebuilt for
+    real via `haikuporter` (not just `make` directly on the persistent dev
+    box, which already had everything installed globally): the chroot
+    build failed with `fatal error: GL/gl.h: No such file or directory`.
+    Root cause, confirmed via Haiku's per-file `SYS:PACKAGE_FILE` attribute
+    (`catattr -d SYS:PACKAGE_FILE /boot/system/lib/libGL.so`, `.../GL/
+    gl.h`): both are owned by the `mesa`/`mesa_devel` packages specifically,
+    not the base `haiku`/`haiku_devel` packages — obvious in hindsight
+    (nothing GL-related should be assumed part of the base OS) but easy to
+    miss when the *dev* box already has everything installed and every
+    earlier package build predates the OpenGL driver. Fixed by adding
+    `lib:libGL`/`mesa_swpipe` to `REQUIRES` (the latter is the actual
+    software-rendering add-on — confirmed necessary at *runtime*, not just
+    link time, since every OpenGL test in this port's history needed it
+    loaded to render at all — "OpenGL load add-on: .../Software Pipe") and
+    `devel:libGL` to `BUILD_PREREQUIRES`. Rebuilt and reinstalled the
+    package after the fix; a comprehensive smoke test (console, fullscreen,
+    `SetMouse` repositioning, OpenGL) all passed using only the packaged
+    install.
 
 ### Known gaps / deliberately out of scope
 
