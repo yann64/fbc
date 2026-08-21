@@ -386,13 +386,21 @@ have nothing to do with the actual test content.
     install-rtlib install-gfxlib2 prefix=$prefix`) needed no changes — a
     `hello.bas` compiled and ran using only the staged install tree from the
     very first local test.
-  - **Still needs**: a real `SOURCE_URI`/`CHECKSUM_SHA256` once this
-    fork/branch has a fetchable tagged tarball — haikuporter can't build from
-    an uncommitted local tree, so the committed recipe intentionally keeps
-    placeholder values with a `TODO` comment. The `BUILD_PREREQUIRES`/
-    `jobArgs`/bootstrap fixes above are already applied to the committed
-    recipe, so publishing is now just a matter of tagging a release and
-    filling in those two fields.
+  - **Published and fully resolved**: the `haiku` branch is pushed to
+    `github.com/yann64/fbc` and tagged `haiku-1.20.0`; the committed recipe's
+    `SOURCE_URI` points at the real GitHub archive URL for that tag
+    (`.../archive/refs/tags/haiku-$portVersion.tar.gz`), with the real
+    `CHECKSUM_SHA256` filled in. **One non-obvious gotcha**: GitHub's
+    archive tarball's top-level directory is named after the *repo*, not the
+    upstream project — `fbc-haiku-$portVersion/` (repo `fbc`, tag
+    `haiku-1.20.0`), not `fbc_haiku-haiku-$portVersion/` as an earlier
+    placeholder guess assumed; `SOURCE_DIR` must match this exactly or
+    haikuporter's unpack step silently looks in the wrong place. Verified
+    end-to-end for real this time: downloaded the actual tag tarball from
+    GitHub, ran haikuporter against the committed recipe completely
+    unmodified (no local-file substitution), and it fetched over the network,
+    built, and packaged successfully — installed and smoke-tested via
+    `pkgman` same as every earlier local-tarball test.
 
 ### Known gaps / deliberately out of scope
 
