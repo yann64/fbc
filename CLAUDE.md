@@ -366,9 +366,19 @@ have nothing to do with the actual test content.
   completed cleanly; a raw-primitives test (`glClear` + a `glBegin`
   triangle with per-vertex colors, linked straight against `-lGL`, no
   `ScreenControl` call at all) rendered a correctly gradient-shaded
-  triangle. `GL_SCALE` (supersampling) isn't supported — `__fb_gl_params
-  .scale` is left at its default of 1, window is always created at exactly
-  the requested `w`×`h`.
+  triangle. `GL_SCALE` (`ScreenControl(SET_GL_SCALE, n)` before `ScreenRes`)
+  is supported too — the driver creates its window at `w*scale`×`h*scale`
+  physical pixels while the logical framebuffer stays at `w`×`h`;
+  `fb_hGL_SetupProjection()`/`fb_hGL_ScreenCreate()` (`gfx_opengl.c`,
+  shared generic code, not driver-specific) already size the GL viewport by
+  `scale` and upload the logical-size framebuffer as a `GL_LINEAR`-filtered
+  texture, so the upscale-with-smoothing needed no driver-side pixel work
+  at all — the only change needed was creating the window at the scaled
+  size. Verified with `SET_GL_SCALE 2` at a 200×150 logical resolution: the
+  window came up at a visibly ~400×300 physical size with correctly
+  smoothed/upscaled content (screenshot-confirmed), `GET_GL_SCALE` read
+  back `2`, and the default (`scale`=1, unscaled) path re-verified
+  unaffected by the same code path.
   - **No BBitmap, no `Draw()` override, no framebuffer mutex** — a deliberate
     design difference from the plain driver, not an oversight. GL content
     lives entirely in the `BGLView`'s own front buffer, touched only from

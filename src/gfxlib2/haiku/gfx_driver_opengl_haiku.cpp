@@ -45,8 +45,9 @@
  * LockGL() call in gl_driver_init() for how this was found (a raw-GL test
  * rendered nothing at all without it).
  *
- * GL_SCALE (supersampling) isn't supported -- __fb_gl_params.scale is left
- * at its default of 1; the window is always created at exactly w x h.
+ * GL_SCALE is supported -- see the __fb_gl_params.scale handling in
+ * gl_driver_init() below; the window is created at w*scale x h*scale while
+ * the logical framebuffer stays at w x h.
  */
 
 #include <Application.h>
@@ -306,12 +307,25 @@ extern "C" int gl_driver_init(char *title, int w, int h, int depth, int refresh_
 		return -1;
 
 	memset(&g_state, 0, sizeof(g_state));
-	g_state.w = w;
-	g_state.h = h;
 	g_state.refresh_rate = (refresh_rate > 0) ? refresh_rate : 60;
 	g_state.depth = depth;
 
 	fb_hGL_NormalizeParameters(flags);
+
+	/* GL_SCALE (ScreenControl SET_GL_SCALE, before ScreenRes): render into
+	 * a physically larger window (w*scale x h*scale) than the logical
+	 * framebuffer (__fb_gfx->w/h, unchanged) -- fb_hGL_SetupProjection()
+	 * (gfx_opengl.c, shared by every OpenGL driver) already sizes its
+	 * glViewport() by __fb_gl_params.scale and uploads the framebuffer at
+	 * its logical size as a texture with GL_LINEAR filtering (set up in
+	 * fb_hGL_ScreenCreate()), so the upscale-with-smoothing is entirely
+	 * generic core behavior -- the only thing a driver needs to do is
+	 * create its window/view at the scaled physical size, same as the X11
+	 * OpenGL driver's `fb_hX11Init(title, w * scale, h * scale, ...)`. */
+	if (__fb_gl_params.init_scale >= 1)
+		__fb_gl_params.scale = __fb_gl_params.init_scale;
+	g_state.w = w * __fb_gl_params.scale;
+	g_state.h = h * __fb_gl_params.scale;
 
 	g_state.mouse_mutex = fb_MutexCreate();
 	g_state.ready_sem = create_sem(0, "fbgfx haiku gl ready");
