@@ -547,32 +547,22 @@ have nothing to do with the actual test content.
   `fetch_modes` both guard on it now (`wait_vsync` doesn't hit this in
   practice, since it's only ever called after a screen already exists, but
   guards anyway since the cost of checking is negligible).
-- **`ir-gas64.bas`'s `ctx.systemv` is `FALSE` for Haiku** (`_emitbegin()`
-  hardcodes it `TRUE` only for `FB_COMPTARGET_LINUX`/`FB_COMPTARGET_FREEBSD`,
-  matching a `!!!TODO!!! add to target options` comment already in
-  `symb-struct.bas` next to the same hardcoded pair). On paper this selects
-  a *different* code path for scalar-argument register assignment
-  (`param_analyze()` in `ir-gas64.bas`: an independent-per-class SysV
-  counter — up to 6 integer args in `RDI`/`RSI`/`RDX`/`RCX`/`R8`/`R9`, up to
-  8 float args in `XMM0`-`XMM7` — vs. a shared-positional-counter Windows
-  x64-style scheme when `ctx.systemv` is false) and struct-parameter
-  classification (the same Linux/FreeBSD-only pair also gates
-  `hGetReturnTypeGas64SystemV()` for struct *returns*, in `symb-struct.bas`).
-  **Despite that, no incorrect result was found** in a dedicated real-
-  hardware test battery built specifically to expose exactly this kind of
-  divergence — see "Confirmed since the initial port" below. This is now a
-  documented, low-priority puzzle rather than an open verification gap: the
-  flag's theoretical effect doesn't reproduce as an observed bug, so either
-  a separate/correct code path is actually used for genuine
-  `Cdecl`/`Alias`-declared external calls (decoupled from
-  `param_analyze()`), or `ctx.systemv`'s practical effect is narrower than
-  its own code comments suggest. Worth adding `FB_COMPTARGET_HAIKU` to
-  both hardcoded pairs anyway next time this file is touched, purely to
-  remove the discrepancy and match Linux/FreeBSD's already-verified,
-  principled path instead of relying on this empirical result forever — but
-  not urgent given the test results.
-
 ### Confirmed since the initial port (no longer open questions)
+
+- **`ctx.systemv` discrepancy resolved** — `FB_COMPTARGET_HAIKU` added to
+  the three hardcoded `FB_COMPTARGET_LINUX`/`FB_COMPTARGET_FREEBSD` checks
+  (`ir-gas64.bas`'s `_emitbegin()` and `symb-struct.bas`'s
+  `hGetReturnTypeGas64SystemV()` + its call site), matching the
+  already-verified, principled SysV code path those two targets use for
+  scalar-argument register assignment and struct-return classification,
+  instead of the legacy heuristic. This was previously flagged as a
+  low-priority puzzle (see the ABI verification entry above): the old,
+  Haiku-excluded code path had already tested correct in a dedicated
+  real-hardware ABI battery, so this change was pure code hygiene, not a
+  bug fix. Re-ran that same battery (still all passing, byte-for-byte
+  identical results) plus the full `log-tests`/`unit-tests` suites
+  (1,154,483/1,154,485, the same pre-existing benign count) against a full
+  self-hosted rebuild — zero regressions from switching code paths.
 
 - **`DRIVER_FULLSCREEN` (`GFX_FULLSCREEN`) is implemented, in both gfx
   drivers** — a genuine visual fullscreen experience, but via a *borderless,
@@ -651,10 +641,11 @@ have nothing to do with the actual test content.
     integer/8 float) would not; the sharpest test for exposing a
     register-vs-stack misclassification.
   All of the above passed byte-for-byte correct, in both call directions,
-  on real hardware. See the "Known gaps" entry on `ctx.systemv` above for
-  the one loose thread this raised (a theoretical divergence that didn't
-  reproduce as an actual bug) — everything else about Haiku's `fb.bas`
-  `targetinfo()` row (`FB_TARGETOPT_UNIX | CALLEEPOPSHIDDENPTR |
+  on real hardware. See the `ctx.systemv` entry above for the one loose
+  thread this raised (a theoretical divergence that didn't reproduce as an
+  actual bug, later resolved as pure code hygiene) — everything else about
+  Haiku's `fb.bas` `targetinfo()` row (`FB_TARGETOPT_UNIX |
+  CALLEEPOPSHIDDENPTR |
   RETURNINREGS | ELF`, no `RETURNINFLTS`/`STACKALIGN16`) is now considered
   verified rather than inferred. (`STACKALIGN16` was separately confirmed
   irrelevant to this port by reading the code, not by testing: it's gated

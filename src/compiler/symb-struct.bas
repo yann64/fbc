@@ -730,7 +730,8 @@ end function
 private function hGetReturnTypeGas64SystemV( byval sym as FBSYMBOL ptr ) as integer
 
 	assert( env.clopt.backend = FB_BACKEND_GAS64 )
-	assert( (env.clopt.target = FB_COMPTARGET_LINUX) or  (env.clopt.target = FB_COMPTARGET_FREEBSD))
+	assert( (env.clopt.target = FB_COMPTARGET_LINUX) or (env.clopt.target = FB_COMPTARGET_FREEBSD) _
+		or (env.clopt.target = FB_COMPTARGET_HAIKU) )
 
 	'' Linux gas64 could use 2 registers
 
@@ -794,7 +795,11 @@ private function hGetReturnType( byval sym as FBSYMBOL ptr ) as integer
 		if( env.clopt.backend = FB_BACKEND_GAS64 ) then
 			'' linux 64bit allows structure returned in registers
 			'' !!!TODO!!! add to target options
-			if( (env.clopt.target = FB_COMPTARGET_LINUX) or (env.clopt.target = FB_COMPTARGET_FREEBSD)) then
+			'' haiku added here after a dedicated real-hardware ABI test
+			'' battery (see CLAUDE.md) round-tripped correctly against real
+			'' gcc-compiled C both before and after this change
+			if( (env.clopt.target = FB_COMPTARGET_LINUX) or (env.clopt.target = FB_COMPTARGET_FREEBSD) _
+				or (env.clopt.target = FB_COMPTARGET_HAIKU) ) then
 				return hGetReturnTypeGas64SystemV( sym )
 			end if
 		end if

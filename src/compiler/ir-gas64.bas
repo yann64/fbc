@@ -3143,7 +3143,11 @@ private function _emitbegin( ) as integer
 	ctx.roundfloat=false
 	ctx.target=fbgetoption(FB_COMPOPT_TARGET) ''linux or windows
 	select case ctx.target
-	case FB_COMPTARGET_LINUX, FB_COMPTARGET_FREEBSD
+	'' haiku added after a dedicated real-hardware ABI test battery (see
+	'' CLAUDE.md) round-tripped correctly against real gcc-compiled C both
+	'' before and after this change -- matches the same pair symb-struct.bas
+	'' already special-cases for struct returns.
+	case FB_COMPTARGET_LINUX, FB_COMPTARGET_FREEBSD, FB_COMPTARGET_HAIKU
 		ctx.systemv = true
 	case else
 		ctx.systemv = false

@@ -2456,10 +2456,10 @@ static int64 HGETRETURNTYPE( struct $8FBSYMBOL* SYM$1 )
 	{
 		if( *(int64*)((uint8*)&ENV$ + 208ll) != 4ll) goto label$239;
 		{
-			if( ((int64)-(*(int64*)((uint8*)&ENV$ + 216ll) == 2ll) | (int64)-(*(int64*)((uint8*)&ENV$ + 216ll) == 6ll)) == 0ll) goto label$241;
+			if( (((int64)-(*(int64*)((uint8*)&ENV$ + 216ll) == 2ll) | (int64)-(*(int64*)((uint8*)&ENV$ + 216ll) == 6ll)) | (int64)-(*(int64*)((uint8*)&ENV$ + 216ll) == 13ll)) == 0ll) goto label$241;
 			{
-				int64 vr$6 = HGETRETURNTYPEGAS64SYSTEMV( SYM$1 );
-				fb$result$1 = vr$6;
+				int64 vr$8 = HGETRETURNTYPEGAS64SYSTEMV( SYM$1 );
+				fb$result$1 = vr$8;
 				goto label$229;
 			}
 			label$241:;
@@ -2503,8 +2503,8 @@ static int64 HGETRETURNTYPE( struct $8FBSYMBOL* SYM$1 )
 		goto label$246;
 		label$250:;
 		{
-			struct $8FBSYMBOL* vr$9 = SYMBUDTGETFIRSTFIELD( SYM$1 );
-			FLD$1 = vr$9;
+			struct $8FBSYMBOL* vr$11 = SYMBUDTGETFIRSTFIELD( SYM$1 );
+			FLD$1 = vr$11;
 			if( *(int64*)((uint8*)FLD$1 + 80ll) != 2ll) goto label$252;
 			{
 				if( *(int64*)((uint8*)SYM$1 + 80ll) < 4ll) goto label$254;
@@ -2522,10 +2522,10 @@ static int64 HGETRETURNTYPE( struct $8FBSYMBOL* SYM$1 )
 		{
 			label$256:;
 			{
-				struct $8FBSYMBOL* vr$12 = SYMBUDTGETFIRSTFIELD( SYM$1 );
-				FLD$1 = vr$12;
-				struct $8FBSYMBOL* vr$13 = SYMBUDTGETNEXTFIELD( FLD$1 );
-				if( vr$13 == (struct $8FBSYMBOL*)0ull) goto label$260;
+				struct $8FBSYMBOL* vr$14 = SYMBUDTGETFIRSTFIELD( SYM$1 );
+				FLD$1 = vr$14;
+				struct $8FBSYMBOL* vr$15 = SYMBUDTGETNEXTFIELD( FLD$1 );
+				if( vr$15 == (struct $8FBSYMBOL*)0ull) goto label$260;
 				{
 					goto label$257;
 				}
@@ -2558,8 +2558,8 @@ static int64 HGETRETURNTYPE( struct $8FBSYMBOL* SYM$1 )
 		goto label$246;
 		label$267:;
 		{
-			struct $8FBSYMBOL* vr$19 = SYMBUDTGETFIRSTFIELD( SYM$1 );
-			FLD$1 = vr$19;
+			struct $8FBSYMBOL* vr$21 = SYMBUDTGETFIRSTFIELD( SYM$1 );
+			FLD$1 = vr$21;
 			if( *(int64*)((uint8*)FLD$1 + 80ll) > 4ll) goto label$269;
 			{
 				if( *(int64*)((uint8*)SYM$1 + 80ll) < 8ll) goto label$271;
@@ -2577,10 +2577,10 @@ static int64 HGETRETURNTYPE( struct $8FBSYMBOL* SYM$1 )
 		{
 			label$273:;
 			{
-				struct $8FBSYMBOL* vr$22 = SYMBUDTGETFIRSTFIELD( SYM$1 );
-				FLD$1 = vr$22;
-				struct $8FBSYMBOL* vr$23 = SYMBUDTGETNEXTFIELD( FLD$1 );
-				if( vr$23 == (struct $8FBSYMBOL*)0ull) goto label$277;
+				struct $8FBSYMBOL* vr$24 = SYMBUDTGETFIRSTFIELD( SYM$1 );
+				FLD$1 = vr$24;
+				struct $8FBSYMBOL* vr$25 = SYMBUDTGETNEXTFIELD( FLD$1 );
+				if( vr$25 == (struct $8FBSYMBOL*)0ull) goto label$277;
 				{
 					goto label$274;
 				}
