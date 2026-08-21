@@ -290,13 +290,75 @@ have nothing to do with the actual test content.
     `B_RGB32` directly, consistent with the 32bpp truecolor path also
     needing no swap.
 - **Packaging**: `contrib/haiku/fbc-1.20.0.recipe`, a haikuporter recipe.
-  `BUILD()` runs `make compiler rtlib gfxlib2`; `INSTALL()`'s file layout
-  (`make install-compiler install-includes install-rtlib install-gfxlib2
-  prefix=$prefix`) was verified end-to-end on the real box: a `hello.bas`
-  compiled and ran using only the staged install tree, no build-tree paths.
-  **Still needs**: a real `SOURCE_URI`/`CHECKSUM_SHA256` once this
-  fork/branch has a fetchable tagged tarball — haikuporter can't build from
-  an uncommitted local tree.
+  **The full pipeline is now verified end-to-end, not just the underlying
+  `make` commands**: built a real local tarball, ran actual `haikuporter`
+  against a test copy of this recipe in a pre-existing local haikuports tree
+  (`/boot/home/git/haikuports` on the box, already configured in
+  `haikuporter.conf`), produced a genuine `fbc-1.20.0-1-x86_64.hpkg`,
+  installed it with `pkgman install`, and confirmed `fbc` on `PATH` compiles
+  and runs console, gfxlib2 (window opens, draws, closes, process exits
+  cleanly), and ThreadCall (libffi) programs using **only** the packaged
+  install — no build-tree paths involved. `pkgman uninstall` afterward
+  restored the box.
+  - **The chicken-and-egg bootstrap problem**: a clean haikuporter chroot has
+    *no* existing fbc to self-host from (there's no prior Haiku fbc package —
+    this port creates the first one). Fixed by vendoring pre-generated C
+    (`bootstrap/haiku-x86_64/*.c`, ~353k lines / 10MB, committed to git,
+    cross-emitted from this same source via
+    `fbc -target haiku-x86_64 -e -r -m fbc -i inc <compiler sources>` on
+    Linux) into the source tree — the same convention upstream fbc itself
+    uses for new-target bring-up. `BUILD()` now does the real two-stage
+    dance: `make bootstrap-minimal` (compiles the vendored `.c` with the
+    *native* gcc against a freshly-built Haiku `libfb.a`, giving a first
+    working `bin/fbc`), then `mv bin/fbc bin/fbc1 && make clean-compiler &&
+    make compiler FBC="bin/fbc1 -i inc"` to self-host rebuild from the real
+    `.bas` sources (mirrors `contrib/travis/build-and-test.sh`), then
+    `make rtlib gfxlib2`. **Regenerate `bootstrap/haiku-x86_64/` whenever
+    `src/compiler/*.bas` changes** (stale bootstrap C would still build, just
+    from outdated compiler logic) — `rm -rf bootstrap && mkdir -p
+    bootstrap/haiku-x86_64 && ./bin/fbc src/compiler/*.bas -m fbc -i inc -e
+    -r -v -target haiku-x86_64 && mv src/compiler/*.c bootstrap/haiku-x86_64/`.
+    This vendored bootstrap can be dropped in a future revision once a prior
+    fbc-for-haiku release exists in HaikuPorts to build against instead.
+  - **haikuporter's `file://` local-source handling has a real quirk**, worth
+    knowing before ever testing a recipe locally again:
+    `SourceFetcherForLocalFile.fetch()` (`HaikuPorter/SourceFetcher.py`)
+    does `portBaseDir + '/' + uri` where `portBaseDir` is the recipe's *own*
+    directory — it does **not** treat a `file:///abs/path` URI as absolute
+    despite the factory correctly stripping exactly 7 chars (`file://`) off
+    the front first. A path starting with `/` just gets string-concatenated
+    onto `portBaseDir`, producing a nonexistent double-slash path. The
+    reliable local-test pattern: copy (or symlink) the tarball **into the
+    port's own recipe directory** and reference it by bare filename, e.g.
+    `SOURCE_URI="file://fbc-1.20.0.tar.gz"` with the file sitting next to the
+    `.recipe`. (A single-slash `file:/...` form is *not* an accepted scheme
+    at all — falls through to "protocol ... is unsupported, sorry".)
+  - **`PROVIDES`/`REQUIRES` naming for `_devel` sub-packages**: the `lib:`
+    prefix names a *runtime* library provide (e.g. `lib:libffi`), not a
+    devel-package provide — writing `lib:libffi_devel` in
+    `BUILD_PREREQUIRES` fails dependency resolution ("Name not found") even
+    though the package itself exists and is installable. The devel
+    sub-package's own plain name works directly: `libffi_devel`,
+    `ncurses6_devel` (confirmed by reading `PROVIDES_devel=` in the real
+    `libffi`/`ncurses6` recipes — both list the bare `<name>_devel = $portVersion`
+    form alongside a `devel:<libname>` form; either of those two forms
+    resolves, `lib:<name>_devel` does not).
+  - **`$jobArgs` already contains the full `-j N` flag** (or is empty for
+    serial builds) — recipes should write `make target $jobArgs`, not
+    `make target -j$jobArgs` (the latter fails with "the '-j' option requires
+    a positive integer argument" whenever `$jobArgs` is empty, and would
+    double up the flag when it isn't).
+  - `INSTALL()`'s file layout (`make install-compiler install-includes
+    install-rtlib install-gfxlib2 prefix=$prefix`) needed no changes — a
+    `hello.bas` compiled and ran using only the staged install tree from the
+    very first local test.
+  - **Still needs**: a real `SOURCE_URI`/`CHECKSUM_SHA256` once this
+    fork/branch has a fetchable tagged tarball — haikuporter can't build from
+    an uncommitted local tree, so the committed recipe intentionally keeps
+    placeholder values with a `TODO` comment. The `BUILD_PREREQUIRES`/
+    `jobArgs`/bootstrap fixes above are already applied to the committed
+    recipe, so publishing is now just a matter of tagging a release and
+    filling in those two fields.
 
 ### Known gaps / deliberately out of scope
 

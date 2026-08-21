@@ -42,7 +42,7 @@ BUILD_PREREQUIRES="
 	haiku_devel
 	cmd:gcc
 	cmd:make
-	lib:libffi_devel
+	libffi_devel
 	ncurses6_devel
 	"
 
@@ -50,7 +50,23 @@ BUILD_REQUIRES="$BUILD_PREREQUIRES"
 
 BUILD()
 {
-	make compiler rtlib gfxlib2 -j$jobArgs
+	# No fbc package exists yet for Haiku (this port creates the first one),
+	# so a clean haikuporter chroot has no native fbc to self-host from. The
+	# source tree vendors pre-generated C (bootstrap/haiku-x86_64/*.c,
+	# cross-emitted from this same source on Linux via
+	# `fbc -target haiku-x86_64 -e -r`) precisely for this bring-up case --
+	# same convention upstream fbc itself uses for new-target bootstrapping.
+	# Compile that with the native gcc to get a first working fbc, then
+	# self-host rebuild from the real .bas sources, matching the two-step
+	# pattern in contrib/travis/build-and-test.sh. This vendored bootstrap
+	# can be dropped in a future revision once a prior fbc-for-haiku release
+	# exists to build against instead.
+	make bootstrap-minimal $jobArgs
+	mv bin/fbc bin/fbc1
+	make clean-compiler
+	make compiler FBC="bin/fbc1 -i inc" $jobArgs
+	rm bin/fbc1
+	make rtlib gfxlib2 $jobArgs
 }
 
 INSTALL()
