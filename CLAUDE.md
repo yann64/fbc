@@ -306,11 +306,28 @@ have nothing to do with the actual test content.
   `<WindowScreen.h>`, the fullscreen/game API, and wasn't confirmed safe to
   call from a plain windowed `BView`; left unimplemented rather than
   guessed at.
-- No `fetch_modes`/`wait_vsync`/OpenGL — still `NULL` in the `GFXDRIVER`
-  struct. `set_window_pos` (unlike the others) **is** implemented —
-  `ScreenControl(SET_WINDOW_POS, x, y)`/`GET_WINDOW_POS` both work via
+- **No OpenGL** — the only entry left `NULL` in the `GFXDRIVER` struct by
+  choice; not planned.
+- `set_window_pos`, `wait_vsync`, and `fetch_modes` are all implemented.
+  `ScreenControl(SET_WINDOW_POS, x, y)`/`GET_WINDOW_POS` work via
   `BWindow::MoveTo()`/`Frame()`, verified by moving a window and confirming
   both the reported coordinates and the actual on-screen position.
+  `ScreenSync` (`wait_vsync`) tries real `BScreen::WaitForRetrace()` first,
+  falling back to sleeping `1/refresh_rate` seconds if that's unavailable.
+  `SCREENLIST` (`fetch_modes`) returns a curated list of common resolutions
+  capped to the desktop size when known. **All three hit the same real bug
+  along the way**: `BScreen`'s default constructor silently returns a
+  garbage 1×1 `Frame()` (not an error) when queried before any
+  `BApplication` exists — which is exactly when `SCREENLIST` is normally
+  called, to help a program pick a resolution *before* `ScreenRes`. Caught
+  by comparing a pre-`ScreenRes` call (returned one bogus 1×1 "mode") against
+  a post-`ScreenRes` call (returned 8 correct entries including the real
+  desktop size) with the exact same code. Fixed by checking
+  `BScreen::IsValid()` and skipping the desktop-size cap/entry entirely when
+  it's false, rather than trusting `Frame()` blindly; `wait_vsync` and
+  `fetch_modes` both guard on it now (`wait_vsync` doesn't hit this in
+  practice, since it's only ever called after a screen already exists, but
+  guards anyway since the cost of checking is negligible).
 - The exact ABI flags in `fb.bas`'s `targetinfo()` row for Haiku
   (`FB_TARGETOPT_*` — struct-passing/return conventions) are still only
   inferred from the closest BSD-family target, not independently verified

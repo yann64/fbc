@@ -45,7 +45,7 @@ struct HaikuDriverState {
 	FBHaikuWindow *window;
 	BBitmap *bitmap;
 	FBMUTEX *mutex;
-	int w, h, depth;
+	int w, h, depth, refresh_rate;
 	bool inited;
 	/* NULL for depth==32 (the direct-memcpy fast path in driver_unlock() is
 	 * used instead); for indexed depths, a ready-made gfxlib2 core blitter
@@ -321,8 +321,6 @@ void *AppThreadEntry(void *)
 
 extern "C" int driver_init(char *title, int w, int h, int depth, int refresh_rate, int flags)
 {
-	(void)refresh_rate;
-
 	if (flags & DRIVER_OPENGL)
 		return -1;
 
@@ -334,6 +332,7 @@ extern "C" int driver_init(char *title, int w, int h, int depth, int refresh_rat
 	memset(&g_state, 0, sizeof(g_state));
 	g_state.w = w;
 	g_state.h = h;
+	g_state.refresh_rate = (refresh_rate > 0) ? refresh_rate : 60;
 	g_state.depth = depth;
 	if (depth != 32) {
 		/* is_rgb=TRUE (the straight-copy blitter variant, fb_hBlit8to32RGB)
@@ -399,6 +398,72 @@ extern "C" void driver_exit(void)
 extern "C" void driver_lock(void)
 {
 	fb_MutexLock(g_state.mutex);
+}
+
+extern "C" void driver_wait_vsync(void)
+{
+	/* wait_vsync is only ever called once a screen is already open (per
+	 * fb_gfx.h's contract), so a BApplication always exists by now, and
+	 * BScreen can give a real hardware retrace wait -- confirmed empirically
+	 * that this matters: querying BScreen *before* any window/app exists
+	 * (see driver_fetch_modes's IsValid() check below) returns garbage. */
+	BScreen screen;
+	if (screen.IsValid() && screen.WaitForRetrace() == B_OK)
+		return;
+
+	/* Fallback: the doc-comment-sanctioned approximation of sleeping for
+	 * 1/refresh_rate seconds (refresh_rate defaults to 60 if ScreenRes
+	 * wasn't given an explicit one). */
+	bigtime_t period = 1000000LL / g_state.refresh_rate;
+	snooze(period);
+}
+
+extern "C" int *driver_fetch_modes(int depth, int *size)
+{
+	/* This driver isn't limited to fixed hardware modes -- any w/h works
+	 * via ScreenRes -- so this is just a curated list of common sizes for
+	 * programs that enumerate modes to offer a menu, for the two depths
+	 * actually supported. */
+	if (depth != 32 && depth != 8) {
+		*size = 0;
+		return NULL;
+	}
+
+	static const int candidates[][2] = {
+		{320, 200}, {320, 240}, {640, 480}, {800, 600},
+		{1024, 768}, {1280, 720}, {1280, 1024}, {1920, 1080},
+	};
+	const int count = sizeof(candidates) / sizeof(candidates[0]);
+
+	/* SCREENLIST/fetch_modes is typically called *before* ScreenRes, to
+	 * help a program decide what resolution to request -- meaning no
+	 * BApplication exists yet. Confirmed empirically: BScreen's Frame()
+	 * silently returns a bogus 1x1 rect in that case (IsValid() catches
+	 * it) rather than failing loudly, so the desktop-size cap/entry below
+	 * is skipped entirely unless a screen session is already live. */
+	BScreen screen;
+	bool have_desktop_size = screen.IsValid();
+	BRect frame = have_desktop_size ? screen.Frame() : BRect();
+	int desktop_w = (int)frame.Width() + 1;
+	int desktop_h = (int)frame.Height() + 1;
+
+	int *modes = (int *)malloc(sizeof(int) * (count + 1));
+	if (modes == NULL) {
+		*size = 0;
+		return NULL;
+	}
+
+	int n = 0;
+	for (int i = 0; i < count; i++) {
+		if (!have_desktop_size ||
+		    (candidates[i][0] <= desktop_w && candidates[i][1] <= desktop_h))
+			modes[n++] = (candidates[i][0] << 16) | candidates[i][1];
+	}
+	if (have_desktop_size)
+		modes[n++] = (desktop_w << 16) | desktop_h;
+
+	*size = n;
+	return modes;
 }
 
 extern "C" void driver_unlock(void)
@@ -515,12 +580,12 @@ extern "C" const GFXDRIVER fb_gfxDriverHaiku =
 	driver_lock,              /* lock */
 	driver_unlock,            /* unlock */
 	driver_set_palette,       /* set_palette */
-	NULL,                     /* wait_vsync */
+	driver_wait_vsync,        /* wait_vsync */
 	driver_get_mouse,         /* get_mouse */
 	driver_set_mouse,         /* set_mouse */
 	driver_set_window_title,  /* set_window_title */
 	driver_set_window_pos,    /* set_window_pos */
-	NULL,                     /* fetch_modes */
+	driver_fetch_modes,       /* fetch_modes */
 	NULL,                     /* flip */
 	NULL,                     /* poll_events -- BWindow's own looper thread pumps events */
 	NULL                      /* update -- driver_unlock() already refreshes the screen */
