@@ -289,6 +289,40 @@ have nothing to do with the actual test content.
     correctly, meaning `device_palette`'s byte order already matches
     `B_RGB32` directly, consistent with the 32bpp truecolor path also
     needing no swap.
+  - **A second real deadlock, found via user report of a window that
+    wouldn't close**: `driver_unlock()` acquires `g_state.mutex` (the
+    framebuffer/bitmap lock, via the caller's `driver_lock()`) and, *while
+    still holding it*, calls `g_state.window->Lock()` (the BWindow lock) to
+    safely blit and `Invalidate()`. Meanwhile `FBHaikuView::MouseMoved()`/
+    `MouseDown()`/`MouseUp()`/the mouse-wheel `MessageReceived()` case all
+    run on the window's own looper thread, which *implicitly* already holds
+    the BWindow lock (that's how `BLooper` dispatches any message) — and
+    they used to acquire the *same* `g_state.mutex` to update
+    `mouse_x`/`y`/`z`/`buttons`. Two threads, two locks, opposite acquisition
+    order (`mutex`→window vs. window→`mutex`): a classic lock-order-inversion
+    deadlock, triggered whenever the mouse moved over the window while a
+    draw call was in flight — confirmed with `gdb -p <pid> -batch -ex
+    "thread apply all bt"` on the actual hung team, which showed the main
+    thread stuck in `driver_unlock()`'s `BWindow::Lock()` and the window's
+    looper thread stuck in `MouseMoved()`'s `fb_MutexLock()`, each waiting on
+    the lock the other held. **Not caught by any prior verification in this
+    port** — every earlier gfx test either didn't involve real mouse movement
+    during a draw call, or the process was killed/screenshotted before the
+    race window came up; it surfaced only when a human was watching the box
+    live (moving the mouse) while a compiled test program drew. Fixed by
+    giving mouse state its own `mouse_mutex`, entirely separate from the
+    framebuffer/bitmap `mutex`, so no code path ever wants both locks in
+    conflicting order. Reproduced reliably (5/5 runs) after the fix using a
+    small helper (`set_mouse_position()` from `<os/game/WindowScreen.h>`,
+    linked against `-lgame` — **not** `-lbe`, confirmed via `nm -D` on both;
+    this symbol lives in `libgame.so`) run concurrently with a tight
+    `Line`-drawing loop, verified via `ps`/screenshot that no window or
+    process was left behind. **Lesson**: verifying a gfx driver's exit path
+    alone isn't enough — any two independently-lockable resources (here: the
+    BWindow lock and a custom app-level mutex) touched from both the main
+    thread and window-event callbacks need one consistent acquisition order,
+    or a dedicated per-resource lock, checked explicitly, not just "it
+    rendered right and the process exited in my simple test."
 - **Packaging**: `contrib/haiku/fbc-1.20.0.recipe`, a haikuporter recipe.
   **The full pipeline is now verified end-to-end, not just the underlying
   `make` commands**: built a real local tarball, ran actual `haikuporter`

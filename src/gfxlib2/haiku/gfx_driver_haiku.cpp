@@ -45,6 +45,10 @@ struct HaikuDriverState {
 	FBHaikuWindow *window;
 	BBitmap *bitmap;
 	FBMUTEX *mutex;
+	/* Separate from `mutex` on purpose -- see the comment above MouseMoved()
+	 * below for the deadlock this avoids. Guards only mouse_x/y/z/buttons/
+	 * clip, never anything touched while the BWindow lock is held. */
+	FBMUTEX *mouse_mutex;
 	int w, h, depth, refresh_rate;
 	bool inited;
 	/* NULL for depth==32 (the direct-memcpy fast path in driver_unlock() is
@@ -157,6 +161,19 @@ public:
 		PostButtonTransitions(EVENT_MOUSE_BUTTON_RELEASE);
 	}
 
+	/* MouseMoved/MouseDown/MouseUp/wheel handling below all run on the
+	 * window's own looper thread while it implicitly holds the BWindow lock
+	 * (that's how BLooper dispatches any message). They must never touch
+	 * g_state.mutex (the framebuffer/bitmap lock): driver_unlock() acquires
+	 * g_state.mutex first and then explicitly locks the BWindow (to safely
+	 * call Invalidate()) -- if a handler here acquired g_state.mutex while
+	 * already holding the (implicit) BWindow lock, the two threads could
+	 * each hold one lock and block on the other, deadlocking (found via a
+	 * real hang: gdb showed the main thread stuck in driver_unlock() ->
+	 * BWindow::Lock() while the window's looper thread was stuck in
+	 * MouseMoved() -> fb_MutexLock(), each waiting on the other). Fixed by
+	 * giving mouse state its own mutex that's never combined with the
+	 * BWindow lock anywhere else in this file. */
 	void MouseMoved(BPoint where, uint32 code, const BMessage *dragMessage) override
 	{
 		(void)code; (void)dragMessage;
@@ -169,10 +186,10 @@ public:
 			float deltaY = 0;
 			msg->FindFloat("be:wheel_delta_y", &deltaY);
 
-			fb_MutexLock(g_state.mutex);
+			fb_MutexLock(g_state.mouse_mutex);
 			g_state.mouse_z -= (int)deltaY;
 			int z = g_state.mouse_z;
-			fb_MutexUnlock(g_state.mutex);
+			fb_MutexUnlock(g_state.mouse_mutex);
 
 			EVENT e;
 			memset(&e, 0, sizeof(e));
@@ -197,10 +214,10 @@ private:
 			Window()->CurrentMessage()->FindInt32("buttons", &haikuButtons);
 		int newButtons = HaikuButtonsToFbButtons(haikuButtons);
 
-		fb_MutexLock(g_state.mutex);
+		fb_MutexLock(g_state.mouse_mutex);
 		int oldButtons = g_state.mouse_buttons;
 		g_state.mouse_buttons = newButtons;
-		fb_MutexUnlock(g_state.mutex);
+		fb_MutexUnlock(g_state.mouse_mutex);
 
 		int changed = oldButtons ^ newButtons;
 		static const int all_buttons[] = { BUTTON_LEFT, BUTTON_RIGHT, BUTTON_MIDDLE };
@@ -217,12 +234,12 @@ private:
 
 	void PostMoveEvent(BPoint where)
 	{
-		fb_MutexLock(g_state.mutex);
+		fb_MutexLock(g_state.mouse_mutex);
 		int dx = (int)where.x - g_state.mouse_x;
 		int dy = (int)where.y - g_state.mouse_y;
 		g_state.mouse_x = (int)where.x;
 		g_state.mouse_y = (int)where.y;
-		fb_MutexUnlock(g_state.mutex);
+		fb_MutexUnlock(g_state.mouse_mutex);
 
 		EVENT e;
 		memset(&e, 0, sizeof(e));
@@ -348,6 +365,7 @@ extern "C" int driver_init(char *title, int w, int h, int depth, int refresh_rat
 			return -1;
 	}
 	g_state.mutex = fb_MutexCreate();
+	g_state.mouse_mutex = fb_MutexCreate();
 	g_state.ready_sem = create_sem(0, "fbgfx haiku ready");
 	if (g_state.ready_sem < 0)
 		return -1;
@@ -391,6 +409,8 @@ extern "C" void driver_exit(void)
 
 	if (g_state.mutex != NULL)
 		fb_MutexDestroy(g_state.mutex);
+	if (g_state.mouse_mutex != NULL)
+		fb_MutexDestroy(g_state.mouse_mutex);
 
 	memset(&g_state, 0, sizeof(g_state));
 }
@@ -538,13 +558,13 @@ extern "C" int driver_set_window_pos(int x, int y)
 
 extern "C" int driver_get_mouse(int *x, int *y, int *z, int *buttons, int *clip)
 {
-	fb_MutexLock(g_state.mutex);
+	fb_MutexLock(g_state.mouse_mutex);
 	*x = g_state.mouse_x;
 	*y = g_state.mouse_y;
 	*z = g_state.mouse_z;
 	*buttons = g_state.mouse_buttons;
 	*clip = g_state.mouse_clip ? 1 : 0;
-	fb_MutexUnlock(g_state.mutex);
+	fb_MutexUnlock(g_state.mouse_mutex);
 	return 0;
 }
 
@@ -564,9 +584,9 @@ extern "C" void driver_set_mouse(int x, int y, int cursor, int clip)
 	}
 
 	if (clip == 0 || clip > 0) {
-		fb_MutexLock(g_state.mutex);
+		fb_MutexLock(g_state.mouse_mutex);
 		g_state.mouse_clip = (clip != 0);
-		fb_MutexUnlock(g_state.mutex);
+		fb_MutexUnlock(g_state.mouse_mutex);
 	}
 }
 
