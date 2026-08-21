@@ -10,11 +10,13 @@
  * hence this is a .cpp file (see the LIBFBGFX_CXX bits in the top-level
  * makefile) linked against libbe/libstdc++, unlike the rest of gfxlib2.
  *
- * Scope: 32bpp truecolor and 8bpp indexed/palette SCREEN modes, no
- * fullscreen/multi-monitor handling. This driver explicitly rejects
- * DRIVER_OPENGL (see driver_init() below) -- OpenGL support is a separate
- * driver, gfx_driver_opengl_haiku.cpp, which gfx_haiku.c tries first for
- * GFX_OPENGL requests. See CLAUDE.md for the full list of known gaps.
+ * Scope: 32bpp truecolor and 8bpp indexed/palette SCREEN modes, DRIVER_
+ * FULLSCREEN (a borderless always-on-top window on the main screen, not a
+ * real display-mode switch -- see ComputeWindowFrame() below). This driver
+ * explicitly rejects DRIVER_OPENGL (see driver_init() below) -- OpenGL
+ * support is a separate driver, gfx_driver_opengl_haiku.cpp, which
+ * gfx_haiku.c tries first for GFX_OPENGL requests. See CLAUDE.md for the
+ * full list of known gaps.
  */
 
 #include <Application.h>
@@ -58,6 +60,11 @@ struct HaikuDriverState {
 	FBMUTEX *mouse_mutex;
 	int w, h, depth, refresh_rate;
 	bool inited;
+	/* DRIVER_FULLSCREEN: borderless window, always-on-top-of-normal-windows,
+	 * positioned on the main screen. See AppThreadEntry() for the frame
+	 * math and CLAUDE.md for why this (not a real display-mode switch) was
+	 * chosen. */
+	bool fullscreen;
 	/* NULL for depth==32 (the direct-memcpy fast path in driver_unlock() is
 	 * used instead); for indexed depths, a ready-made gfxlib2 core blitter
 	 * (see fb_hGetBlitter()/gfx_blitter.c) that converts __fb_gfx->framebuffer
@@ -206,9 +213,12 @@ private:
 
 class FBHaikuWindow : public BWindow {
 public:
-	FBHaikuWindow(BRect frame, const char *title, BBitmap *bitmap)
-		: BWindow(frame, title, B_TITLED_WINDOW,
-			B_NOT_ZOOMABLE | B_NOT_RESIZABLE | B_AUTO_UPDATE_SIZE_LIMITS)
+	FBHaikuWindow(BRect frame, const char *title, BBitmap *bitmap, bool fullscreen)
+		: BWindow(frame, title,
+			fullscreen ? B_NO_BORDER_WINDOW_LOOK : B_TITLED_WINDOW_LOOK,
+			fullscreen ? B_MODAL_ALL_WINDOW_FEEL : B_NORMAL_WINDOW_FEEL,
+			B_NOT_ZOOMABLE | B_NOT_RESIZABLE | B_AUTO_UPDATE_SIZE_LIMITS
+				| (fullscreen ? B_NOT_MOVABLE : 0))
 	{
 		fView = new FBHaikuView(Bounds(), bitmap);
 		AddChild(fView);
@@ -266,15 +276,42 @@ public:
 	FBHaikuApp() : BApplication("application/x-vnd.fbc-gfx") {}
 };
 
+/* DRIVER_FULLSCREEN: position/size the (borderless) window against the
+ * *main* screen only -- deliberately not a combined multi-monitor desktop
+ * rect, which BScreen(B_MAIN_SCREEN_ID) never returns anyway (it's always
+ * one physical display's own Frame()). Centers the requested w x h within
+ * it rather than stretching/letterboxing to fill a mismatched resolution,
+ * to avoid the complexity of scaling the framebuffer blit -- if w x h
+ * matches (or exceeds) the screen size, this still fills it edge-to-edge
+ * with no gaps, which is the common case. Not verified against a real
+ * multi-monitor setup (this port's dev hardware is single-display) -- see
+ * CLAUDE.md. */
+BRect ComputeWindowFrame(int w, int h, bool fullscreen)
+{
+	if (fullscreen) {
+		BScreen screen(B_MAIN_SCREEN_ID);
+		if (screen.IsValid()) {
+			BRect desktop = screen.Frame();
+			float x = desktop.left + ((desktop.Width() + 1 - w) / 2.0f);
+			float y = desktop.top + ((desktop.Height() + 1 - h) / 2.0f);
+			if (x < desktop.left) x = desktop.left;
+			if (y < desktop.top) y = desktop.top;
+			return BRect(x, y, x + w - 1, y + h - 1);
+		}
+	}
+	return BRect(0, 0, w - 1, h - 1);
+}
+
 void *AppThreadEntry(void *)
 {
 	g_state.app = new FBHaikuApp();
 
-	BRect frame(0, 0, g_state.w - 1, g_state.h - 1);
-	g_state.bitmap = new BBitmap(frame, B_RGB32);
+	BRect frame = ComputeWindowFrame(g_state.w, g_state.h, g_state.fullscreen);
+	g_state.bitmap = new BBitmap(BRect(0, 0, g_state.w - 1, g_state.h - 1), B_RGB32);
 	g_state.window = new FBHaikuWindow(frame, __fb_window_title ? __fb_window_title : "FreeBASIC",
-		g_state.bitmap);
-	g_state.window->CenterOnScreen();
+		g_state.bitmap, g_state.fullscreen);
+	if (!g_state.fullscreen)
+		g_state.window->CenterOnScreen();
 	g_state.window->Show();
 
 	release_sem(g_state.ready_sem);
@@ -301,6 +338,7 @@ extern "C" int driver_init(char *title, int w, int h, int depth, int refresh_rat
 	g_state.h = h;
 	g_state.refresh_rate = (refresh_rate > 0) ? refresh_rate : 60;
 	g_state.depth = depth;
+	g_state.fullscreen = (flags & DRIVER_FULLSCREEN) != 0;
 	if (depth != 32) {
 		/* is_rgb=TRUE (the straight-copy blitter variant, fb_hBlit8to32RGB)
 		 * confirmed empirically on a real Haiku box: a 4-color-band test

@@ -515,6 +515,18 @@ have nothing to do with the actual test content.
 
 ### Known gaps / deliberately out of scope
 
+- **Multi-monitor targeting isn't verified on real hardware** — this port's
+  dev box is single-display (confirmed via a small `BScreen`/`SetToNext()`
+  probe: exactly one screen enumerated). `DRIVER_FULLSCREEN` (see
+  "Confirmed" below) deliberately targets only `BScreen(B_MAIN_SCREEN_ID)`
+  — never a combined/spanning virtual-desktop rect, which Haiku doesn't
+  expose anyway — so it should behave sanely on a multi-monitor setup
+  (covering just the main screen, not stretching across both), but this is
+  reasoned from the API, not confirmed by actually running it on a second
+  physical display. gfxlib2's own BASIC-level API (inherited from upstream)
+  has no "pick a monitor" concept at all (no `ScreenRes ..., monitor`
+  parameter exists), so there's no way to target a *non-main* screen even
+  in principle without inventing new API surface, which is out of scope.
 - `set_window_pos`, `wait_vsync`, and `fetch_modes` are all implemented.
   `ScreenControl(SET_WINDOW_POS, x, y)`/`GET_WINDOW_POS` work via
   `BWindow::MoveTo()`/`Frame()`, verified by moving a window and confirming
@@ -562,6 +574,38 @@ have nothing to do with the actual test content.
 
 ### Confirmed since the initial port (no longer open questions)
 
+- **`DRIVER_FULLSCREEN` (`GFX_FULLSCREEN`) is implemented, in both gfx
+  drivers** — a genuine visual fullscreen experience, but via a *borderless,
+  always-on-top window* (`B_NO_BORDER_WINDOW_LOOK` + `B_MODAL_ALL_WINDOW
+  _FEEL`) rather than a real display-mode switch. Deliberately chosen over
+  the alternative (`BWindowScreen`/`BScreen::SetMode()`, a true exclusive
+  video-mode change, closer to what the X11 OpenGL driver's `XRandR`-based
+  fullscreen does) — the direct-framebuffer/exclusive-mode API is riskier
+  (can leave the display in a bad state if not restored correctly) and
+  this port's whole architecture is already BApplication/BWindow-based, so
+  a borderless window is the lower-risk, more consistent choice; matches
+  what many portable engines actually do for "fullscreen" on Haiku rather
+  than the legacy game-mode API. The window is created at exactly the
+  requested `w`×`h`, centered on `BScreen(B_MAIN_SCREEN_ID)` — filling it
+  edge-to-edge with zero gaps when `w`×`h` matches the desktop resolution,
+  or centered with the desktop visible in the margin otherwise (no
+  stretching/letterboxing, to avoid scaling-blit complexity). Verified with
+  screenshots in three configurations, both drivers: exact desktop
+  resolution (1366×768) — no title bar, no window chrome, **the Deskbar
+  itself is fully hidden**, filled edge-to-edge with zero visible gaps;
+  smaller resolution (640×480 plain driver, 800×600 GL driver) — correctly
+  centered, borderless, Deskbar visible only in the uncovered margin (since
+  the window doesn't overlap it there — expected, not a bug); and a
+  post-exit screenshot confirming the desktop (Deskbar, icons, everything)
+  is restored perfectly normally once the fullscreen program exits. Also
+  re-ran the mouse-move/drawing race test (the one that caught the earlier
+  lock-order-inversion deadlock) in fullscreen mode specifically, since
+  `B_MODAL_ALL_WINDOW_FEEL` is a different window feel than the normal
+  windowed case that fix was originally verified under — 3/3 clean runs, no
+  deadlock. See the "Known gaps" entry above for the one open question this
+  left: multi-monitor targeting is reasoned-correct (targets only
+  `BScreen(B_MAIN_SCREEN_ID)`, never a spanning rect) but not verified on
+  real multi-monitor hardware, since this port's dev box is single-display.
 - **`SetMouse` can now reposition the system cursor, in both gfx drivers.**
   The earlier limitation was that Haiku's `set_mouse_position()` (in
   `<os/game/WindowScreen.h>`, exported from `libgame.so` — **not**

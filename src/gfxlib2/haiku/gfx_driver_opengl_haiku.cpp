@@ -95,6 +95,9 @@ struct HaikuGLDriverState {
 	int w, h, depth, refresh_rate;
 	bool inited;
 	bool exiting;
+	/* DRIVER_FULLSCREEN -- see the plain driver's ComputeWindowFrame() for
+	 * the full explanation; same approach here. */
+	bool fullscreen;
 	int mouse_x, mouse_y, mouse_z, mouse_buttons;
 	bool mouse_clip;
 };
@@ -199,9 +202,12 @@ private:
 
 class FBHaikuGLWindow : public BWindow {
 public:
-	FBHaikuGLWindow(BRect frame, const char *title, ulong glOptions)
-		: BWindow(frame, title, B_TITLED_WINDOW,
-			B_NOT_ZOOMABLE | B_NOT_RESIZABLE | B_AUTO_UPDATE_SIZE_LIMITS)
+	FBHaikuGLWindow(BRect frame, const char *title, ulong glOptions, bool fullscreen)
+		: BWindow(frame, title,
+			fullscreen ? B_NO_BORDER_WINDOW_LOOK : B_TITLED_WINDOW_LOOK,
+			fullscreen ? B_MODAL_ALL_WINDOW_FEEL : B_NORMAL_WINDOW_FEEL,
+			B_NOT_ZOOMABLE | B_NOT_RESIZABLE | B_AUTO_UPDATE_SIZE_LIMITS
+				| (fullscreen ? B_NOT_MOVABLE : 0))
 	{
 		fView = new FBHaikuGLView(Bounds(), glOptions);
 		AddChild(fView);
@@ -269,14 +275,37 @@ ulong BuildGLOptions(void)
 	return options;
 }
 
+/* See the plain driver's ComputeWindowFrame() for the full explanation --
+ * same approach here (main screen only, centered not stretched, not
+ * verified against real multi-monitor hardware). g_state.w/h here are
+ * already the GL_SCALE-adjusted physical size, so fullscreen+scale
+ * combined just centers that scaled window on the main screen. */
+BRect ComputeWindowFrame(int w, int h, bool fullscreen)
+{
+	if (fullscreen) {
+		BScreen screen(B_MAIN_SCREEN_ID);
+		if (screen.IsValid()) {
+			BRect desktop = screen.Frame();
+			float x = desktop.left + ((desktop.Width() + 1 - w) / 2.0f);
+			float y = desktop.top + ((desktop.Height() + 1 - h) / 2.0f);
+			if (x < desktop.left) x = desktop.left;
+			if (y < desktop.top) y = desktop.top;
+			return BRect(x, y, x + w - 1, y + h - 1);
+		}
+	}
+	return BRect(0, 0, w - 1, h - 1);
+}
+
 void *AppThreadEntry(void *)
 {
 	g_state.app = new FBHaikuGLApp();
 
-	BRect frame(0, 0, g_state.w - 1, g_state.h - 1);
+	BRect frame = ComputeWindowFrame(g_state.w, g_state.h, g_state.fullscreen);
 	g_state.window = new FBHaikuGLWindow(frame,
-		__fb_window_title ? __fb_window_title : "FreeBASIC", BuildGLOptions());
-	g_state.window->CenterOnScreen();
+		__fb_window_title ? __fb_window_title : "FreeBASIC", BuildGLOptions(),
+		g_state.fullscreen);
+	if (!g_state.fullscreen)
+		g_state.window->CenterOnScreen();
 	g_state.window->Show();
 
 	release_sem(g_state.ready_sem);
@@ -309,6 +338,7 @@ extern "C" int gl_driver_init(char *title, int w, int h, int depth, int refresh_
 	memset(&g_state, 0, sizeof(g_state));
 	g_state.refresh_rate = (refresh_rate > 0) ? refresh_rate : 60;
 	g_state.depth = depth;
+	g_state.fullscreen = (flags & DRIVER_FULLSCREEN) != 0;
 
 	fb_hGL_NormalizeParameters(flags);
 
